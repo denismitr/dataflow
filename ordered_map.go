@@ -66,6 +66,38 @@ func (om *OrderedMap[K, V]) Get(key K) (V, bool) {
 	return el.value, true
 }
 
+func (om *OrderedMap[K, V]) Remove(key K) bool {
+	om.mu.Lock()
+	defer om.mu.Unlock()
+
+	el, found := om.m[key]
+	if !found {
+		return false
+	}
+
+	delete(om.m, key)
+
+	// is root
+	if el.prev == nil {
+		om.root = nil
+		om.tail = nil
+		return true
+	}
+
+	// is tail
+	if el.next == nil {
+		om.tail = el.prev
+		el.prev.next = nil
+		return true
+	}
+
+	el.prev.next = el.next
+	el.next.prev = el.prev
+	el.next = nil
+	el.prev = nil
+	return true
+}
+
 func getZero[T any]() T {
 	var result T
 	return result
