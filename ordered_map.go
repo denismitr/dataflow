@@ -120,6 +120,23 @@ func (om *OrderedMap[K, V]) ForEach(f func(key K, value V, order int)) {
 	}
 }
 
+func (om *OrderedMap[K, V]) Map(f func(key K, value V, order int) V) *OrderedMap[K, V] {
+	om.mu.RLock()
+	defer om.mu.RUnlock()
+
+	result := NewOrderedMap[K, V]()
+
+	curr := om.root
+	order := 0
+	for curr != nil {
+		mappedValue := f(curr.key, curr.value, order)
+		result.Put(curr.key, mappedValue)
+		curr = curr.next
+	}
+
+	return result
+}
+
 func getZero[T any]() T {
 	var result T
 	return result
