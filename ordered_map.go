@@ -137,6 +137,46 @@ func (om *OrderedMap[K, V]) Map(f func(key K, value V, order int) V) *OrderedMap
 	return result
 }
 
+func (om *OrderedMap[K, V]) Reduce(f func(key K, value V, order int) bool) *OrderedMap[K, V] {
+	om.mu.RLock()
+	defer om.mu.RUnlock()
+
+	result := NewOrderedMap[K, V]()
+
+	curr := om.root
+	order := 0
+	for curr != nil {
+		exclude := f(curr.key, curr.value, order)
+		if !exclude {
+			result.Put(curr.key, curr.value)
+		}
+
+		curr = curr.next
+	}
+
+	return result
+}
+
+func (om *OrderedMap[K, V]) Filter(f func(key K, value V, order int) bool) *OrderedMap[K, V] {
+	om.mu.RLock()
+	defer om.mu.RUnlock()
+
+	result := NewOrderedMap[K, V]()
+
+	curr := om.root
+	order := 0
+	for curr != nil {
+		preserve := f(curr.key, curr.value, order)
+		if !preserve {
+			result.Put(curr.key, curr.value)
+		}
+
+		curr = curr.next
+	}
+
+	return result
+}
+
 func getZero[T any]() T {
 	var result T
 	return result

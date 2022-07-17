@@ -105,7 +105,7 @@ func TestOrderedMap_ForEach(t *testing.T) {
 }
 
 func TestOrderedMap_Map(t *testing.T) {
-	t.Run("map over an ordered map", func(t *testing.T) {
+	t.Run("map over an empty ordered map", func(t *testing.T) {
 		iterations := 0
 		om := gs.NewOrderedMap[string, float64]()
 		nom := om.Map(func(k string, v float64, order int) float64 {
@@ -149,5 +149,55 @@ func TestOrderedMap_Map(t *testing.T) {
 		bazValue, ok := nom.Get("baz")
 		assert.True(t, ok)
 		assert.Equal(t, 6.7, bazValue)
+	})
+}
+
+func TestOrderedMap_Reduce(t *testing.T) {
+	t.Run("reduce an empty ordered map will result in an empty map", func(t *testing.T) {
+		iterations := 0
+		om := gs.NewOrderedMap[string, float64]()
+		nom := om.Reduce(func(k string, v float64, order int) bool {
+			iterations++
+			return true
+		})
+
+		assert.Equal(t, 0, iterations)
+		assert.Equal(t, 0, nom.Len())
+	})
+
+	t.Run("reduce an ordered map excluding some values", func(t *testing.T) {
+		iterations := 0
+		var keyOrder []string
+
+		om := gs.NewOrderedMap[string, float64]()
+		om.Put("foo", 1)
+		om.Put("bar", 2.4)
+		om.Put("baz", 5.7)
+		om.Put("123abc", 444)
+		om.Put("abc", 123.99)
+		om.Put("abc", 124.88)
+		om.Put("abc123", 321.4)
+		om.Put("abc-000", 0)
+
+		// reduce all values less than 100
+		nom := om.Reduce(func(k string, v float64, order int) bool {
+			iterations++
+			keyOrder = append(keyOrder, k)
+			return v < 100
+		})
+
+		assert.Equal(t, 7, iterations)
+		assert.Equal(t, 7, len(keyOrder))
+		assert.Equal(t, []string{"foo", "bar", "baz", "123abc", "abc", "abc123", "abc-000"}, keyOrder)
+
+		assert.Equal(t, 3, nom.Len())
+
+		abcValue, ok := nom.Get("abc")
+		assert.True(t, ok)
+		assert.Equal(t, 124.88, abcValue)
+
+		bazValue, ok := nom.Get("baz")
+		assert.False(t, ok)
+		assert.Equal(t, float64(0), bazValue)
 	})
 }
