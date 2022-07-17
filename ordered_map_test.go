@@ -69,3 +69,37 @@ func TestOrderedMap_Remove(t *testing.T) {
 		assert.Equal(t, 0, om.Len())
 	})
 }
+
+func TestOrderedMap_ForEach(t *testing.T) {
+	t.Run("iterate over an empty map", func(t *testing.T) {
+		iterations := 0
+		om := gs.NewOrderedMap[string, string]()
+		om.ForEach(func(k string, v string, order int) {
+			iterations++
+		})
+		assert.Equal(t, 0, iterations)
+	})
+
+	t.Run("iterate over values in map", func(t *testing.T) {
+		iterations := 0
+		var keyOrder []string
+
+		om := gs.NewOrderedMap[string, string]()
+		om.Put("foo", "1")
+		om.Put("bar", "2")
+		om.Put("baz", "5")
+		om.Put("123abc", "444")
+		om.Put("abc", "123")
+		om.Put("abc", "124")
+		om.Put("abc123", "321")
+		om.Put("abc-000", "000abc")
+
+		om.ForEach(func(k string, v string, order int) {
+			iterations++
+			keyOrder = append(keyOrder, k)
+		})
+
+		assert.Equal(t, 7, iterations)
+		assert.Equal(t, 7, len(keyOrder))
+	})
+}

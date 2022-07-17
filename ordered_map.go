@@ -41,7 +41,17 @@ func (om *OrderedMap[K, V]) Put(key K, value V) bool {
 			prev:  om.tail,
 		}
 		om.m[key] = newEl
-		om.tail = newEl
+
+		if om.root == nil {
+			om.root = newEl
+			om.tail = newEl
+		} else {
+			prev := om.tail
+			prev.next = newEl
+			newEl.prev = prev
+			om.tail = newEl
+		}
+
 		return true
 	}
 
@@ -96,6 +106,18 @@ func (om *OrderedMap[K, V]) Remove(key K) bool {
 	el.next = nil
 	el.prev = nil
 	return true
+}
+
+func (om *OrderedMap[K, V]) ForEach(f func(key K, value V, order int)) {
+	om.mu.RLock()
+	defer om.mu.RUnlock()
+
+	curr := om.root
+	order := 0
+	for curr != nil {
+		f(curr.key, curr.value, order)
+		curr = curr.next
+	}
 }
 
 func getZero[T any]() T {
