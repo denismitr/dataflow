@@ -167,7 +167,7 @@ func (om *OrderedMap[K, V]) Filter(f func(key K, value V, order int) bool) *Orde
 	order := 0
 	for curr != nil {
 		preserve := f(curr.key, curr.value, order)
-		if !preserve {
+		if preserve {
 			result.Put(curr.key, curr.value)
 		}
 
