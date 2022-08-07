@@ -3,181 +3,230 @@ package gs
 import (
 	"sync"
 
+	"github.com/denismitr/dll"
 	"golang.org/x/exp/constraints"
 )
 
-type element[K constraints.Ordered, V any] struct {
-	key   K
-	value V
-	next  *element[K, V]
-	prev  *element[K, V]
+type OrderedPair[K constraints.Ordered, V any] struct {
+	Order int
+	Key   K
+	Value V
 }
 
 type OrderedMap[K constraints.Ordered, V any] struct {
-	m    map[K]*element[K, V]
-	root *element[K, V]
-	tail *element[K, V]
-	mu   sync.RWMutex
+	m           map[K]*dll.Element[Pair[K, V]]
+	list        *dll.DoublyLinkedList[Pair[K, V]]
+	lockEnabled bool
+	mu          sync.RWMutex
 }
 
 func NewOrderedMap[K constraints.Ordered, V any]() *OrderedMap[K, V] {
 	return &OrderedMap[K, V]{
-		m:    make(map[K]*element[K, V]),
-		root: nil,
-		tail: nil,
+		m:           make(map[K]*dll.Element[Pair[K, V]]),
+		list:        dll.New[Pair[K, V]](),
+		lockEnabled: true,
 	}
 }
 
+func fromOrderedPairs[K constraints.Ordered, V any](pairs []OrderedPair[K, V]) *OrderedMap[K, V] {
+	om := &OrderedMap[K, V]{
+		m:           make(map[K]*dll.Element[Pair[K, V]]),
+		list:        dll.New[Pair[K, V]](),
+		lockEnabled: false,
+	}
+
+	// sort
+
+	for i := range pairs {
+		// todo: under lock
+		om.Put(pairs[i].Key, pairs[i].Value)
+	}
+
+	om.lockEnabled = true
+
+	return om
+}
+
 // Put is idempotent and returns true if a new value was added
-func (om *OrderedMap[K, V]) Put(key K, value V) bool {
-	om.mu.Lock()
-	defer om.mu.Unlock()
+func (om *OrderedMap[K, V]) Put(key K, value V) (added bool) {
+	if om.lockEnabled {
+		om.mu.Lock()
+		defer om.mu.Unlock()
+	}
 
 	existingEl, found := om.m[key]
 	if !found {
-		newEl := &element[K, V]{
-			key:   key,
-			value: value,
-			prev:  om.tail,
-		}
+		p := Pair[K, V]{Key: key, Value: value}
+		newEl := dll.NewElement(p)
 		om.m[key] = newEl
-
-		if om.root == nil {
-			om.root = newEl
-			om.tail = newEl
-		} else {
-			prev := om.tail
-			prev.next = newEl
-			newEl.prev = prev
-			om.tail = newEl
-		}
-
+		om.list.PushTail(newEl)
 		return true
 	}
 
-	existingEl.value = value
+	added = true
+	existingEl.ReplaceValue(Pair[K, V]{Key: key, Value: value})
 	return false
 }
 
 func (om *OrderedMap[K, V]) Len() int {
-	om.mu.RLock()
-	defer om.mu.RUnlock()
+	if om.lockEnabled {
+		om.mu.RLock()
+		defer om.mu.RUnlock()
+	}
+
 	return len(om.m)
 }
 
 func (om *OrderedMap[K, V]) Get(key K) (V, bool) {
-	om.mu.RLock()
-	defer om.mu.RUnlock()
+	if om.lockEnabled {
+		om.mu.RLock()
+		defer om.mu.RUnlock()
+	}
+
 	el, found := om.m[key]
 	if !found {
 		return getZero[V](), false
 	}
 
-	return el.value, true
+	return el.Value().Value, true
 }
 
-func (om *OrderedMap[K, V]) Remove(key K) bool {
-	om.mu.Lock()
-	defer om.mu.Unlock()
+func (om *OrderedMap[K, V]) Remove(key K) (found bool) {
+	if om.lockEnabled {
+		om.mu.Lock()
+		defer om.mu.Unlock()
+	}
 
-	el, found := om.m[key]
-	if !found {
+	el, exists := om.m[key]
+	if !exists {
 		return false
 	}
 
 	delete(om.m, key)
+	om.list.Remove(el)
 
-	// is root
-	if el.prev == nil {
-		om.root = nil
-		om.tail = nil
-		return true
-	}
-
-	// is tail
-	if el.next == nil {
-		om.tail = el.prev
-		el.prev.next = nil
-		return true
-	}
-
-	el.prev.next = el.next
-	el.next.prev = el.prev
-	el.next = nil
-	el.prev = nil
 	return true
 }
 
 func (om *OrderedMap[K, V]) ForEach(f func(key K, value V, order int)) {
-	om.mu.RLock()
-	defer om.mu.RUnlock()
+	if om.lockEnabled {
+		om.mu.RLock()
+		defer om.mu.RUnlock()
+	}
 
-	curr := om.root
+	curr := om.list.Head()
 	order := 0
 	for curr != nil {
-		f(curr.key, curr.value, order)
-		curr = curr.next
+		f(curr.Value().Key, curr.Value().Value, order)
+		curr = curr.Next()
 	}
 }
 
 func (om *OrderedMap[K, V]) Map(f func(key K, value V, order int) V) *OrderedMap[K, V] {
-	om.mu.RLock()
-	defer om.mu.RUnlock()
-
-	result := NewOrderedMap[K, V]()
-
-	curr := om.root
-	order := 0
-	for curr != nil {
-		mappedValue := f(curr.key, curr.value, order)
-		result.Put(curr.key, mappedValue)
-		curr = curr.next
+	if om.lockEnabled {
+		om.mu.RLock()
+		defer om.mu.RUnlock()
 	}
 
+	result := NewOrderedMap[K, V]()
+	result.lockEnabled = false
+
+	curr := om.list.Head()
+	order := 0
+	for curr != nil {
+		p := curr.Value()
+		mappedValue := f(p.Key, p.Value, order)
+		result.Put(p.Key, mappedValue)
+		curr = curr.Next()
+	}
+
+	result.lockEnabled = true
 	return result
 }
 
 func (om *OrderedMap[K, V]) Reduce(f func(key K, value V, order int) bool) *OrderedMap[K, V] {
-	om.mu.RLock()
-	defer om.mu.RUnlock()
-
-	result := NewOrderedMap[K, V]()
-
-	curr := om.root
-	order := 0
-	for curr != nil {
-		exclude := f(curr.key, curr.value, order)
-		if !exclude {
-			result.Put(curr.key, curr.value)
-		}
-
-		curr = curr.next
+	if om.lockEnabled {
+		om.mu.RLock()
+		defer om.mu.RUnlock()
 	}
 
+	result := NewOrderedMap[K, V]()
+	result.lockEnabled = false
+
+	curr := om.list.Head()
+	order := 0
+	for curr != nil {
+		p := curr.Value()
+		exclude := f(p.Key, p.Value, order)
+		if !exclude {
+			result.Put(p.Key, p.Value)
+		}
+
+		curr = curr.Next()
+	}
+
+	result.lockEnabled = true
 	return result
 }
 
 func (om *OrderedMap[K, V]) Filter(f func(key K, value V, order int) bool) *OrderedMap[K, V] {
-	om.mu.RLock()
-	defer om.mu.RUnlock()
-
-	result := NewOrderedMap[K, V]()
-
-	curr := om.root
-	order := 0
-	for curr != nil {
-		preserve := f(curr.key, curr.value, order)
-		if preserve {
-			result.Put(curr.key, curr.value)
-		}
-
-		curr = curr.next
+	if om.lockEnabled {
+		om.mu.RLock()
+		defer om.mu.RUnlock()
 	}
 
+	result := NewOrderedMap[K, V]()
+	result.lockEnabled = false
+
+	curr := om.list.Head()
+	order := 0
+	for curr != nil {
+		pair := curr.Value()
+		preserve := f(pair.Key, pair.Value, order)
+		if preserve {
+			result.Put(pair.Key, pair.Value)
+		}
+
+		curr = curr.Next()
+	}
+
+	result.lockEnabled = true
 	return result
 }
 
-func getZero[T any]() T {
-	var result T
-	return result
+func (om *OrderedMap[K, V]) Pairs(closeOnNoReader bool) <-chan OrderedPair[K, V] {
+	resultCh := make(chan OrderedPair[K, V])
+
+	go func() {
+		om.mu.RLock()
+		defer om.mu.RUnlock()
+		defer close(resultCh)
+
+		curr := om.list.Head()
+		order := 0
+		for curr != nil {
+			pair := curr.Value()
+			op := OrderedPair[K, V]{
+				Order: order,
+				Key:   pair.Key,
+				Value: pair.Value,
+			}
+
+			if closeOnNoReader {
+				select {
+				case resultCh <- op:
+				default:
+					// if no one reads from the channel stop iteration and close
+					// this way goroutine will not leak
+					return
+				}
+			} else {
+				resultCh <- op
+			}
+
+			curr = curr.Next()
+		}
+	}()
+
+	return resultCh
 }
