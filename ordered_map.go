@@ -1,17 +1,12 @@
 package gs
 
 import (
+	"context"
 	"sync"
 
 	"github.com/denismitr/dll"
 	"golang.org/x/exp/constraints"
 )
-
-type OrderedPair[K constraints.Ordered, V any] struct {
-	Order int
-	Key   K
-	Value V
-}
 
 type OrderedMap[K constraints.Ordered, V any] struct {
 	m           map[K]*dll.Element[Pair[K, V]]
@@ -35,16 +30,20 @@ func fromOrderedPairs[K constraints.Ordered, V any](pairs []OrderedPair[K, V]) *
 		lockEnabled: false,
 	}
 
-	// sort
-
 	for i := range pairs {
-		// todo: under lock
 		om.Put(pairs[i].Key, pairs[i].Value)
 	}
 
 	om.lockEnabled = true
 
 	return om
+}
+
+func (om *OrderedMap[K, V]) Stream(concurrency uint8) *OrderedMapStream[K, V] {
+	return &OrderedMapStream[K, V]{
+		om:          om,
+		concurrency: concurrency,
+	}
 }
 
 // Put is idempotent and returns true if a new value was added
@@ -194,7 +193,7 @@ func (om *OrderedMap[K, V]) Filter(f func(key K, value V, order int) bool) *Orde
 	return result
 }
 
-func (om *OrderedMap[K, V]) Pairs(closeOnNoReader bool) <-chan OrderedPair[K, V] {
+func (om *OrderedMap[K, V]) pairs(ctx context.Context) <-chan OrderedPair[K, V] {
 	resultCh := make(chan OrderedPair[K, V])
 
 	go func() {
@@ -205,6 +204,10 @@ func (om *OrderedMap[K, V]) Pairs(closeOnNoReader bool) <-chan OrderedPair[K, V]
 		curr := om.list.Head()
 		order := 0
 		for curr != nil {
+			if ctx.Err() != nil {
+				return
+			}
+
 			pair := curr.Value()
 			op := OrderedPair[K, V]{
 				Order: order,
@@ -212,17 +215,9 @@ func (om *OrderedMap[K, V]) Pairs(closeOnNoReader bool) <-chan OrderedPair[K, V]
 				Value: pair.Value,
 			}
 
-			if closeOnNoReader {
-				select {
-				case resultCh <- op:
-				default:
-					// if no one reads from the channel stop iteration and close
-					// this way goroutine will not leak
-					return
-				}
-			} else {
-				resultCh <- op
-			}
+			order++
+
+			resultCh <- op
 
 			curr = curr.Next()
 		}
