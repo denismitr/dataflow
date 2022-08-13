@@ -3,6 +3,7 @@ package gs_test
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestStream_Filter(t *testing.T) {
 		}
 
 		start := time.Now()
-		result, err := om.Stream(100).Filter(func(key int, value string, order int) bool {
+		result, err := om.Stream(gs.Concurrency(100)).Filter(func(key int, value string, order int) bool {
 			time.Sleep(100 * time.Microsecond)
 			return key%2 > 0
 		}).Filter(func(key int, value string, order int) bool {
@@ -38,15 +39,15 @@ func TestStream_Filter(t *testing.T) {
 	})
 }
 
-func TestStream_FilterAndMap(t *testing.T) {
-	t.Run("concurrency 50", func(t *testing.T) {
+func TestStream_FilterMapAndForEach(t *testing.T) {
+	t.Run("filter and mao with common concurrency of 50", func(t *testing.T) {
 		om := gs.NewOrderedMap[int, string]()
 		for i := 0; i < 100; i++ {
 			om.Put(i, fmt.Sprintf("%d", i))
 		}
 
 		start := time.Now()
-		result, err := om.Stream(50).Filter(func(key int, value string, order int) bool {
+		result, err := om.Stream(gs.Concurrency(50)).Filter(func(key int, value string, order int) bool {
 			time.Sleep(100 * time.Microsecond)
 			return key%2 > 0
 		}).Map(func(key int, value string, order int) string {
@@ -60,7 +61,7 @@ func TestStream_FilterAndMap(t *testing.T) {
 		require.NotNil(t, result)
 
 		require.Equal(t, 50, result.Len())
-		durationIsLess(t, elapsed, 400*time.Millisecond)
+		durationIsLess(t, elapsed, 40*time.Millisecond)
 
 		checked := 0
 		result.ForEach(func(key int, value string, order int) {
@@ -82,7 +83,7 @@ func TestStream_FilterAndMap(t *testing.T) {
 		defer cancel()
 
 		start := time.Now()
-		result, err := om.Stream(20).Filter(func(key int, value string, order int) bool {
+		result, err := om.Stream(gs.Concurrency(20)).Filter(func(key int, value string, order int) bool {
 			time.Sleep(300 * time.Microsecond)
 			return key%2 > 0
 		}).Map(func(key int, value string, order int) string {
@@ -104,6 +105,44 @@ func TestStream_FilterAndMap(t *testing.T) {
 			checked++
 		})
 		assert.Equal(t, result.Len(), checked)
+	})
+
+	t.Run("filter and map with common concurrency of 100 and forEach with 50", func(t *testing.T) {
+		om := gs.NewOrderedMap[int, string]()
+		for i := 0; i < 1_000; i++ {
+			om.Put(i, fmt.Sprintf("%d", i))
+		}
+
+		var forEachCounter uint64
+
+		start := time.Now()
+		result, err := om.Stream(gs.Concurrency(100)).Filter(func(key int, value string, order int) bool {
+			time.Sleep(20 * time.Millisecond)
+			return key%2 > 0
+		}).Map(func(key int, value string, order int) string {
+			time.Sleep(20 * time.Millisecond)
+			return value + "-mapped"
+		}).ForEach(func(key int, value string, order int) {
+			time.Sleep(10 * time.Millisecond)
+			atomic.AddUint64(&forEachCounter, 1)
+		}, gs.Concurrency(50)).Run(context.TODO())
+
+		elapsed := time.Since(start)
+		t.Logf("\n\nFilter, Map and Iterate stream with common concurrency 100 and 50 in forEach. Elapsed in %s", elapsed.String())
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		require.Equal(t, 500, result.Len())
+		durationIsLess(t, elapsed, 400*time.Millisecond)
+
+		checked := 0
+		result.ForEach(func(key int, value string, order int) {
+			assert.Equal(t, fmt.Sprintf("%d-mapped", key), value)
+			checked++
+		})
+		assert.Equal(t, result.Len(), checked)
+		assert.Equal(t, uint64(500), forEachCounter)
 	})
 }
 

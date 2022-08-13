@@ -12,38 +12,38 @@ import (
 type (
 	OrderedFilterFn[K constraints.Ordered, V any] func(key K, value V, order int) bool
 	OrderedMapFn[K constraints.Ordered, V any]    func(key K, value V, order int) V
+	InOrderForEach[K constraints.Ordered, V any]  func(key K, value V, order int)
 
 	orderedPiper[K constraints.Ordered, V any] func(ctx context.Context, flow *flow[K, V]) *flow[K, V]
-
-	flow[K constraints.Ordered, V any] struct {
-		ch   chan OrderedPair[K, V]
-		stop chan struct{}
-	}
 )
-
-func newFlow[K constraints.Ordered, V any](concurrency uint8) *flow[K, V] {
-	return &flow[K, V]{
-		ch:   make(chan OrderedPair[K, V]),
-		stop: make(chan struct{}, concurrency),
-	}
-}
 
 type OrderedMapStream[K constraints.Ordered, V any] struct {
 	om          *OrderedMap[K, V]
 	concurrency uint8
 
-	mux     sync.Mutex
-	actions []orderedPiper[K, V]
+	mux       sync.Mutex
+	functions []orderedPiper[K, V]
 }
 
-func (s *OrderedMapStream[K, V]) Filter(filter OrderedFilterFn[K, V]) *OrderedMapStream[K, V] {
+func (s *OrderedMapStream[K, V]) Filter(
+	filter OrderedFilterFn[K, V],
+	options ...FlowOption,
+) *OrderedMapStream[K, V] {
+	fc := flowControl{
+		concurrency: s.concurrency,
+	}
+
+	for _, o := range options {
+		o(&fc)
+	}
+
 	f := func(ctx context.Context, flow *flow[K, V]) *flow[K, V] {
 		out := newFlow[K, V](s.concurrency)
 
 		var wg sync.WaitGroup
 		wg.Add(int(s.concurrency))
 
-		for i := 0; i < int(s.concurrency); i++ {
+		for i := 0; i < int(fc.concurrency); i++ {
 			go func() {
 				defer wg.Done()
 
@@ -81,7 +81,7 @@ func (s *OrderedMapStream[K, V]) Filter(filter OrderedFilterFn[K, V]) *OrderedMa
 		return out
 	}
 
-	s.actions = append(s.actions, f)
+	s.functions = append(s.functions, f)
 	return s
 }
 
@@ -127,10 +127,65 @@ func (s *OrderedMapStream[K, V]) Map(mapper OrderedMapFn[K, V]) *OrderedMapStrea
 		return out
 	}
 
-	s.actions = append(s.actions, f)
+	s.functions = append(s.functions, f)
 	return s
 }
 
+func (s *OrderedMapStream[K, V]) ForEach(effector InOrderForEach[K, V], options ...FlowOption) *OrderedMapStream[K, V] {
+	fc := flowControl{
+		concurrency: s.concurrency,
+	}
+
+	for _, o := range options {
+		o(&fc)
+	}
+
+	f := func(ctx context.Context, flow *flow[K, V]) *flow[K, V] {
+		out := newFlow[K, V](fc.concurrency)
+		var wg sync.WaitGroup
+		wg.Add(int(fc.concurrency))
+
+		for i := 0; i < int(fc.concurrency); i++ {
+			go func() {
+				defer wg.Done()
+
+				for {
+					select {
+					case <-out.stop:
+						flow.stop <- struct{}{}
+						return
+					case pair, ok := <-flow.ch:
+						if ok {
+							effector(pair.Key, pair.Value, pair.Order)
+							out.ch <- OrderedPair[K, V]{
+								Key:   pair.Key,
+								Value: pair.Value,
+								Order: pair.Order,
+							}
+						} else {
+							return
+						}
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+		}
+
+		go func() {
+			wg.Wait()
+			close(out.ch)
+		}()
+
+		return out
+	}
+
+	s.functions = append(s.functions, f)
+	return s
+}
+
+// Take n items from stream
+// works only in single threaded mode
 func (s *OrderedMapStream[K, V]) Take(n int) *OrderedMapStream[K, V] {
 	f := func(ctx context.Context, flow *flow[K, V]) *flow[K, V] {
 		out := newFlow[K, V](s.concurrency)
@@ -169,7 +224,7 @@ func (s *OrderedMapStream[K, V]) Take(n int) *OrderedMapStream[K, V] {
 		return out
 	}
 
-	s.actions = append(s.actions, f)
+	s.functions = append(s.functions, f)
 	return s
 }
 
@@ -257,11 +312,11 @@ func join[K constraints.Ordered, V any](ctx context.Context, flows []*flow[K, V]
 }
 
 func (s *OrderedMapStream[K, V]) launchActionOnFlow(ctx context.Context, action int, flow *flow[K, V]) *flow[K, V] {
-	if action >= len(s.actions) {
+	if action >= len(s.functions) {
 		return flow
 	}
 
-	piper := s.actions[action]
+	piper := s.functions[action]
 	out := piper(ctx, flow)
 	return s.launchActionOnFlow(ctx, action+1, out)
 }

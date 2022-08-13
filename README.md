@@ -2,6 +2,7 @@
 Golang generic streams 
 
 * OrderedMap
+* Ordered concurrent streams
 * UnorderedMap (todo)
 * GenericSlice (todo)
 

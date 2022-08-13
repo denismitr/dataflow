@@ -39,10 +39,20 @@ func fromOrderedPairs[K constraints.Ordered, V any](pairs []OrderedPair[K, V]) *
 	return om
 }
 
-func (om *OrderedMap[K, V]) Stream(concurrency uint8) *OrderedMapStream[K, V] {
+const DefaultConcurrency = 1
+
+func (om *OrderedMap[K, V]) Stream(options ...FlowOption) *OrderedMapStream[K, V] {
+	fc := flowControl{
+		concurrency: DefaultConcurrency,
+	}
+
+	for _, o := range options {
+		o(&fc)
+	}
+
 	return &OrderedMapStream[K, V]{
 		om:          om,
-		concurrency: concurrency,
+		concurrency: fc.concurrency,
 	}
 }
 
