@@ -1,6 +1,9 @@
 package gs_test
 
 import (
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/denismitr/gs"
@@ -39,6 +42,191 @@ func TestOrderedMap_Get(t *testing.T) {
 		nilV, ok := om.Get("non-existent")
 		assert.False(t, ok)
 		assert.Equal(t, 0, nilV)
+	})
+}
+
+func TestOrderedMap_Put(t *testing.T) {
+	t.Run("it will override a value", func(t *testing.T) {
+		const N = 1_000
+
+		om := gs.NewOrderedMap[string, int]()
+		for i := 0; i < N; i++ {
+			om.Put(fmt.Sprintf("key_%d", i), i)
+		}
+
+		for i := 0; i < N; i++ {
+			om.Put(fmt.Sprintf("key_%d", i), i+N)
+		}
+
+		om.ForEach(func(key string, value int, order int) {
+			assert.GreaterOrEqual(t, value, N-1, "value should be greater than N - 1")
+			assert.LessOrEqual(t, order, N-1, "order should never be greater than N - 1")
+			assert.Equal(t, fmt.Sprintf("key_%d", order), key, "key should follow pattern key_%d where %d is order")
+			assert.Equal(t, order+N, value, "value should equal to order + N")
+		})
+	})
+
+	t.Run("put concurrent values with lock if not exist", func(t *testing.T) {
+		const N = 10_000
+
+		om := gs.NewOrderedMap[string, int]()
+		var wg sync.WaitGroup
+
+		var added uint64
+		wg.Add(N)
+		for i := 0; i < N; i++ {
+			go func(i int) {
+				defer wg.Done()
+				ok := om.Put(fmt.Sprintf("key_%d", i), i)
+				if ok {
+					atomic.AddUint64(&added, 1)
+				}
+			}(i)
+		}
+
+		wg.Wait()
+
+		assert.Equal(t, uint64(N), added)
+
+		// expect not to be added twice
+		var notAdded uint64
+		wg.Add(N)
+		for i := 0; i < N; i++ {
+			go func(i int) {
+				defer wg.Done()
+				ok := om.Put(fmt.Sprintf("key_%d", i), i)
+				if !ok {
+					atomic.AddUint64(&notAdded, 1)
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		assert.Equal(t, uint64(N), notAdded)
+	})
+
+	t.Run("attempt race on Put", func(t *testing.T) {
+		const N = 10_000
+
+		om := gs.NewOrderedMap[string, int]()
+		var wg sync.WaitGroup
+
+		var added uint64
+		wg.Add(N * 2)
+		for i := 0; i < N; i++ {
+			go func(i int) {
+				defer wg.Done()
+				ok := om.Put(fmt.Sprintf("key_%d", i), i)
+				if ok {
+					atomic.AddUint64(&added, 1)
+				}
+			}(i)
+
+			go func(i int) {
+				defer wg.Done()
+				ok := om.Put(fmt.Sprintf("key_%d", i), i)
+				if ok {
+					atomic.AddUint64(&added, 1)
+				}
+			}(N - 1 - i)
+		}
+
+		wg.Wait()
+
+		assert.Equal(t, uint64(N), added, "expected every value to be added only once")
+	})
+}
+
+func TestOrderedMap_PutNX(t *testing.T) {
+	t.Run("it will never override a value", func(t *testing.T) {
+		const N = 1_000
+
+		om := gs.NewOrderedMap[string, int]()
+
+		for i := 0; i < N; i++ {
+			om.PutNX(fmt.Sprintf("key_%d", i), i)
+		}
+
+		for i := 0; i < N; i++ {
+			om.PutNX(fmt.Sprintf("key_%d", i), i+N)
+		}
+
+		om.ForEach(func(key string, value int, order int) {
+			assert.LessOrEqual(t, value, N-1, "value should never be greater than N - 1")
+			assert.LessOrEqual(t, order, N-1, "order should never be greater than N - 1")
+			assert.Equal(t, fmt.Sprintf("key_%d", value), key, "key should follow pattern key_%d where %d is value")
+			assert.Equal(t, fmt.Sprintf("key_%d", order), key, "key should follow pattern key_%d where %d is order")
+		})
+	})
+
+	t.Run("put concurrent values with lock if not exist", func(t *testing.T) {
+		const N = 10_000
+
+		om := gs.NewOrderedMap[string, int]()
+		var wg sync.WaitGroup
+
+		var added uint64
+		wg.Add(N)
+		for i := 0; i < N; i++ {
+			go func(i int) {
+				defer wg.Done()
+				ok := om.PutNX(fmt.Sprintf("key_%d", i), i)
+				if ok {
+					atomic.AddUint64(&added, 1)
+				}
+			}(i)
+		}
+
+		wg.Wait()
+
+		assert.Equal(t, uint64(N), added)
+
+		// expect not to be added twice
+		var notAdded uint64
+		wg.Add(N)
+		for i := 0; i < N; i++ {
+			go func(i int) {
+				defer wg.Done()
+				ok := om.PutNX(fmt.Sprintf("key_%d", i), i)
+				if !ok {
+					atomic.AddUint64(&notAdded, 1)
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		assert.Equal(t, uint64(N), notAdded)
+	})
+
+	t.Run("attempt race on PutNX", func(t *testing.T) {
+		const N = 10_000
+
+		om := gs.NewOrderedMap[string, int]()
+		var wg sync.WaitGroup
+
+		var added uint64
+		wg.Add(N * 2)
+		for i := 0; i < N; i++ {
+			go func(i int) {
+				defer wg.Done()
+				ok := om.PutNX(fmt.Sprintf("key_%d", i), i)
+				if ok {
+					atomic.AddUint64(&added, 1)
+				}
+			}(i)
+
+			go func(i int) {
+				defer wg.Done()
+				ok := om.PutNX(fmt.Sprintf("key_%d", i), i)
+				if ok {
+					atomic.AddUint64(&added, 1)
+				}
+			}(N - 1 - i)
+		}
+
+		wg.Wait()
+
+		assert.Equal(t, uint64(N), added, "expected every value to be added only once")
 	})
 }
 

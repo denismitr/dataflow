@@ -72,9 +72,26 @@ func (om *OrderedMap[K, V]) Put(key K, value V) (added bool) {
 		return true
 	}
 
-	added = true
 	existingEl.ReplaceValue(Pair[K, V]{Key: key, Value: value})
 	return false
+}
+
+func (om *OrderedMap[K, V]) PutNX(key K, value V) (added bool) {
+	if om.lockEnabled {
+		om.mu.Lock()
+		defer om.mu.Unlock()
+	}
+
+	_, found := om.m[key]
+	if found {
+		return false
+	}
+
+	p := Pair[K, V]{Key: key, Value: value}
+	newEl := dll.NewElement(p)
+	om.m[key] = newEl
+	om.list.PushTail(newEl)
+	return true
 }
 
 func (om *OrderedMap[K, V]) Len() int {
@@ -128,6 +145,7 @@ func (om *OrderedMap[K, V]) ForEach(f func(key K, value V, order int)) {
 	for curr != nil {
 		f(curr.Value().Key, curr.Value().Value, order)
 		curr = curr.Next()
+		order++
 	}
 }
 
