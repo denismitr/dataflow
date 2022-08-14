@@ -8,6 +8,8 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
+type LessPairFn[K constraints.Ordered, V any] func(a Pair[K, V], b Pair[K, V]) (less bool)
+
 type OrderedMap[K constraints.Ordered, V any] struct {
 	m           map[K]*dll.Element[Pair[K, V]]
 	list        *dll.DoublyLinkedList[Pair[K, V]]
@@ -219,6 +221,10 @@ func (om *OrderedMap[K, V]) Filter(f func(key K, value V, order int) bool) *Orde
 
 	result.lockEnabled = true
 	return result
+}
+
+func (om *OrderedMap[K, V]) SortBy(lessFn LessPairFn[K, V]) {
+	om.list.Sort(dll.CompareFn[Pair[K, V]](lessFn))
 }
 
 func (om *OrderedMap[K, V]) pairs(ctx context.Context) <-chan OrderedPair[K, V] {

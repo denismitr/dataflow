@@ -257,6 +257,25 @@ func TestOrderedMapStream_First(t *testing.T) {
 	})
 }
 
+func Test_Sort(t *testing.T) {
+	t.Run("sort and test take top 10 elements", func(t *testing.T) {
+		om := gs.NewOrderedMap[int, string]()
+		for i := 0; i < 1_000; i++ {
+			om.Put(i, fmt.Sprintf("%d", i))
+		}
+
+		stream := gs.NewOrderedMapStream(om)
+		result, err := stream.Filter(func(key int, value string, order int) bool {
+			return key%2 == 0
+		}, gs.Concurrency(200)).SortBy(func(a gs.Pair[int, string], b gs.Pair[int, string]) bool {
+			return a.Key > b.Key // reverse
+		}).Take(20).PipeToOrderedMap(context.TODO())
+
+		require.NoError(t, err)
+		require.Equal(t, 20, result.Len())
+	})
+}
+
 func durationIsLess(t *testing.T, a, b time.Duration) {
 	t.Helper()
 

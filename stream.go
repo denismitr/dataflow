@@ -81,7 +81,6 @@ func (s *OrderedMapStream[K, V]) Filter(
 								}
 							}
 						} else {
-							flow.stop <- struct{}{}
 							return
 						}
 					case <-ctx.Done():
@@ -161,7 +160,10 @@ func (s *OrderedMapStream[K, V]) Map(
 	return s
 }
 
-func (s *OrderedMapStream[K, V]) ForEach(effector OrderedMapForEachFn[K, V], options ...FlowOption) *OrderedMapStream[K, V] {
+func (s *OrderedMapStream[K, V]) ForEach(
+	effector OrderedMapForEachFn[K, V],
+	options ...FlowOption,
+) *OrderedMapStream[K, V] {
 	localFc := flowControl{
 		concurrency: s.fc.concurrency,
 	}
@@ -205,6 +207,46 @@ func (s *OrderedMapStream[K, V]) ForEach(effector OrderedMapForEachFn[K, V], opt
 		go func() {
 			wg.Wait()
 			close(out.ch)
+		}()
+
+		return out
+	}
+
+	s.functions = append(s.functions, f)
+	return s
+}
+
+func (s *OrderedMapStream[K, V]) SortBy(lessFn LessPairFn[K, V]) *OrderedMapStream[K, V] {
+	f := func(ctx context.Context, flow *flow[K, V]) *flow[K, V] {
+		out := newFlow[K, V](DefaultConcurrency)
+
+		go func() {
+			defer close(out.ch)
+
+			tempMap := NewOrderedMap[K, V]()
+			tempMap.lockEnabled = false // todo: method
+
+			for {
+				select {
+				case pair, ok := <-flow.ch:
+					if ok {
+						tempMap.PutNX(pair.Key, pair.Value)
+					} else {
+						tempMap.SortBy(lessFn)
+
+						for oPair := range tempMap.pairs(ctx) {
+							out.ch <- oPair
+						}
+
+						return
+					}
+				case <-out.stop:
+					flow.stop <- struct{}{}
+					return
+				case <-ctx.Done():
+					return
+				}
+			}
 		}()
 
 		return out
