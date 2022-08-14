@@ -26,7 +26,7 @@ func TestStream_Filter(t *testing.T) {
 		}).Filter(func(key int, value string, order int) bool {
 			time.Sleep(100 * time.Microsecond)
 			return key > 50
-		}).Run(context.TODO())
+		}).PipeToOrderedMap(context.TODO())
 
 		elapsed := time.Since(start)
 		t.Logf("\n\nFilter twice stream with concurrency 100 elapsed in %s", elapsed.String())
@@ -52,7 +52,7 @@ func TestStream_FilterMapAndForEach(t *testing.T) {
 			return key%2 > 0
 		}).Map(func(key int, value string, order int) string {
 			return value + "-mapped"
-		}).Run(context.TODO())
+		}).PipeToOrderedMap(context.TODO())
 
 		elapsed := time.Since(start)
 		t.Logf("\n\nFilter and Map stream with concurrency 50 elapsed in %s", elapsed.String())
@@ -88,7 +88,7 @@ func TestStream_FilterMapAndForEach(t *testing.T) {
 			return key%2 > 0
 		}).Map(func(key int, value string, order int) string {
 			return value + "-mapped"
-		}).Take(4).Run(ctx)
+		}).Take(4).PipeToOrderedMap(ctx)
 
 		elapsed := time.Since(start)
 		t.Logf("\n\nFilter and Map stream with concurrency 50 and take 4 elapsed in %s", elapsed.String())
@@ -125,7 +125,7 @@ func TestStream_FilterMapAndForEach(t *testing.T) {
 		}).ForEach(func(key int, value string, order int) {
 			time.Sleep(10 * time.Millisecond)
 			atomic.AddUint64(&forEachCounter, 1)
-		}, gs.Concurrency(50)).Run(context.TODO())
+		}, gs.Concurrency(50)).PipeToOrderedMap(context.TODO())
 
 		elapsed := time.Since(start)
 		t.Logf("\n\nFilter, Map and Iterate stream with common concurrency 100 and 50 in forEach. Elapsed in %s", elapsed.String())
@@ -143,6 +143,91 @@ func TestStream_FilterMapAndForEach(t *testing.T) {
 		})
 		assert.Equal(t, result.Len(), checked)
 		assert.Equal(t, uint64(500), forEachCounter)
+	})
+}
+
+func Test_Reduce(t *testing.T) {
+	t.Run("simple", func(t *testing.T) {
+		type reducable struct {
+			a int
+			b int
+		}
+
+		type result struct {
+			aSum    int
+			bSum    int
+			allSums int
+		}
+
+		om := gs.NewOrderedMap[string, reducable]()
+		for i := 0; i < 10; i++ {
+			om.Put(fmt.Sprintf("key_%d", i), reducable{a: i, b: i + 1})
+		}
+
+		stream := gs.NewReducableOrderedMapStream[string, reducable, result](om)
+
+		finalResult, err := stream.Reduce(func(carry result, k string, v reducable, order int) result {
+			carry.aSum = carry.aSum + v.a
+			carry.bSum = carry.bSum + v.b
+			carry.allSums = carry.allSums + carry.aSum + carry.bSum
+			return carry
+		}).PipeToResult(context.TODO())
+
+		require.NoError(t, err)
+		assert.Equal(t, 45, finalResult.aSum)
+		assert.Equal(t, 55, finalResult.bSum)
+		assert.Equal(t, 385, finalResult.allSums)
+	})
+}
+
+func TestOrderedMapStream_First(t *testing.T) {
+	t.Run("one threaded find by value", func(t *testing.T) {
+		om := gs.NewOrderedMap[int, string]()
+		for i := 0; i < 1_000; i++ {
+			om.Put(i, fmt.Sprintf("%d", i))
+		}
+
+		stream := gs.NewOrderedMapStream(om)
+
+		first, err := stream.Map(func(key int, value string, order int) string {
+			return "prefix-" + value
+		}).First(context.TODO(), func(key int, value string, order int) (bool, error) {
+			if key == 567 && value == "prefix-567" {
+				return true, nil
+			}
+
+			return false, nil
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, 567, first.Key)
+		assert.Equal(t, "prefix-567", first.Value)
+		assert.Equal(t, 567, first.Order)
+	})
+
+	t.Run("multi threaded threaded find by value", func(t *testing.T) {
+		om := gs.NewOrderedMap[int, string]()
+		for i := 0; i < 1_000; i++ {
+			om.Put(i, fmt.Sprintf("%d", i))
+		}
+
+		stream := gs.NewOrderedMapStream(om, gs.Concurrency(50))
+
+		first, err := stream.Map(func(key int, value string, order int) string {
+			time.Sleep(50 * time.Millisecond)
+			return "prefix-" + value
+		}).First(context.TODO(), func(key int, value string, order int) (bool, error) {
+			if key == 567 && value == "prefix-567" {
+				return true, nil
+			}
+
+			return false, nil
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, 567, first.Key)
+		assert.Equal(t, "prefix-567", first.Value)
+		assert.Equal(t, 567, first.Order)
 	})
 }
 

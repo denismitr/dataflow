@@ -9,5 +9,5 @@ Golang generic streams
 * Map
 * Reduce 
 * ForEach
-* Filter (todo)
-* Order (todo) 
+* Filter
+* Sort (todo) 
