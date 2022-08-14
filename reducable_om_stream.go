@@ -13,8 +13,7 @@ type (
 	orderedMapReduceSink[K constraints.Ordered, V, R any] func(ctx context.Context, flow *flow[K, V]) (R, error)
 
 	ReducableOrderedMapStream[K constraints.Ordered, V, R any] struct {
-		OrderedMapStream[K, V]
-		reduceSink orderedMapReduceSink[K, V, R]
+		oms *OrderedMapStream[K, V]
 	}
 )
 
@@ -31,17 +30,34 @@ func NewReducableOrderedMapStream[K constraints.Ordered, V, R any](
 	}
 
 	return &ReducableOrderedMapStream[K, V, R]{
-		OrderedMapStream: OrderedMapStream[K, V]{
-			om:          om,
-			concurrency: fc.concurrency,
+		oms: &OrderedMapStream[K, V]{
+			om: om,
+			fc: fc,
 		},
 	}
 }
 
-func (s *ReducableOrderedMapStream[K, V, R]) Reduce(
-	reducer OrderedMapReduceFn[K, V, R],
+func (s *ReducableOrderedMapStream[K, V, R]) Map(
+	mapper OrderedMapMapperFn[K, V],
+	options ...FlowOption,
 ) *ReducableOrderedMapStream[K, V, R] {
-	f := func(ctx context.Context, flow *flow[K, V]) (R, error) {
+	s.oms.Map(mapper, options...)
+	return s
+}
+
+func (s *ReducableOrderedMapStream[K, V, R]) Filter(
+	filter OrderedMapFilterFn[K, V],
+	options ...FlowOption,
+) *ReducableOrderedMapStream[K, V, R] {
+	s.oms.Filter(filter, options...)
+	return s
+}
+
+func (s *ReducableOrderedMapStream[K, V, R]) Reduce(
+	ctx context.Context,
+	reducer OrderedMapReduceFn[K, V, R],
+) (R, error) {
+	reduceSink := func(ctx context.Context, flow *flow[K, V]) (R, error) {
 		var result R
 		for {
 			select {
@@ -57,24 +73,14 @@ func (s *ReducableOrderedMapStream[K, V, R]) Reduce(
 		}
 	}
 
-	s.reduceSink = f
-
-	return s
-}
-
-func (s *ReducableOrderedMapStream[K, V, R]) PipeToResult(ctx context.Context) (R, error) {
-	if s.reduceSink == nil {
-		return getZero[R](), ErrReducerRequired
+	outFlow, err := s.oms.run(ctx)
+	if err != nil {
+		return getZero[R](), errors.Wrap(err, "reduce ordered map stream failed")
 	}
 
-	outFlow, err := s.run(ctx)
+	result, err := reduceSink(ctx, outFlow)
 	if err != nil {
-		return getZero[R](), errors.Wrap(err, "reducable ordered map stream failed")
-	}
-
-	result, err := s.reduceSink(ctx, outFlow)
-	if err != nil {
-		return getZero[R](), errors.Wrap(err, "reducable ordered map stream failed")
+		return getZero[R](), errors.Wrap(err, "reduce ordered map stream failed")
 	}
 
 	return result, nil

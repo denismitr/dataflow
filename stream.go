@@ -16,14 +16,14 @@ type (
 	OrderedMapReduceFn[K constraints.Ordered, V, R any] func(carry R, key K, value V, order int) R
 	OrderedMapFirstFn[K constraints.Ordered, V any]     func(key K, value V, order int) (bool, error)
 
-	orderedPiper[K constraints.Ordered, V any] func(ctx context.Context, flow *flow[K, V]) *flow[K, V]
+	orderedPipe[K constraints.Ordered, V any] func(ctx context.Context, flow *flow[K, V]) *flow[K, V]
 )
 
 type OrderedMapStream[K constraints.Ordered, V any] struct {
-	om          *OrderedMap[K, V]
-	concurrency uint8
+	om *OrderedMap[K, V]
+	fc flowControl
 
-	functions []orderedPiper[K, V]
+	functions []orderedPipe[K, V]
 }
 
 func NewOrderedMapStream[K constraints.Ordered, V any](
@@ -39,8 +39,8 @@ func NewOrderedMapStream[K constraints.Ordered, V any](
 	}
 
 	return &OrderedMapStream[K, V]{
-		om:          om,
-		concurrency: fc.concurrency, // fixme: assign flowControl
+		om: om,
+		fc: fc, // fixme: assign flowControl
 	}
 }
 
@@ -48,21 +48,21 @@ func (s *OrderedMapStream[K, V]) Filter(
 	filter OrderedMapFilterFn[K, V],
 	options ...FlowOption,
 ) *OrderedMapStream[K, V] {
-	fc := flowControl{
-		concurrency: s.concurrency,
+	localFc := flowControl{
+		concurrency: s.fc.concurrency,
 	}
 
 	for _, o := range options {
-		o(&fc)
+		o(&localFc)
 	}
 
 	f := func(ctx context.Context, flow *flow[K, V]) *flow[K, V] {
-		out := newFlow[K, V](s.concurrency)
+		out := newFlow[K, V](localFc.concurrency)
 
 		var wg sync.WaitGroup
-		wg.Add(int(s.concurrency))
+		wg.Add(int(localFc.concurrency))
 
-		for i := 0; i < int(fc.concurrency); i++ {
+		for i := 0; i < int(localFc.concurrency); i++ {
 			go func() {
 				defer wg.Done()
 
@@ -71,13 +71,13 @@ func (s *OrderedMapStream[K, V]) Filter(
 					case <-out.stop:
 						flow.stop <- struct{}{}
 						return
-					case pair, ok := <-flow.ch:
+					case oPair, ok := <-flow.ch:
 						if ok {
-							if v := filter(pair.Key, pair.Value, pair.Order); v {
+							if v := filter(oPair.Key, oPair.Value, oPair.Order); v {
 								out.ch <- OrderedPair[K, V]{
-									Key:   pair.Key,
-									Value: pair.Value,
-									Order: pair.Order,
+									Key:   oPair.Key,
+									Value: oPair.Value,
+									Order: oPair.Order,
 								}
 							}
 						} else {
@@ -104,14 +104,25 @@ func (s *OrderedMapStream[K, V]) Filter(
 	return s
 }
 
-func (s *OrderedMapStream[K, V]) Map(mapper OrderedMapMapperFn[K, V]) *OrderedMapStream[K, V] {
+func (s *OrderedMapStream[K, V]) Map(
+	mapper OrderedMapMapperFn[K, V],
+	options ...FlowOption,
+) *OrderedMapStream[K, V] {
+	localFc := flowControl{
+		concurrency: s.fc.concurrency,
+	}
+
+	for _, o := range options {
+		o(&localFc)
+	}
+
 	f := func(ctx context.Context, flow *flow[K, V]) *flow[K, V] {
-		out := newFlow[K, V](s.concurrency)
+		out := newFlow[K, V](localFc.concurrency)
 
 		var wg sync.WaitGroup
-		wg.Add(int(s.concurrency))
+		wg.Add(int(localFc.concurrency))
 
-		for i := 0; i < int(s.concurrency); i++ {
+		for i := 0; i < int(localFc.concurrency); i++ {
 			go func() {
 				defer wg.Done()
 
@@ -120,13 +131,13 @@ func (s *OrderedMapStream[K, V]) Map(mapper OrderedMapMapperFn[K, V]) *OrderedMa
 					case <-out.stop:
 						flow.stop <- struct{}{}
 						return
-					case pair, ok := <-flow.ch:
+					case oPair, ok := <-flow.ch:
 						if ok {
-							newValue := mapper(pair.Key, pair.Value, pair.Order)
+							newValue := mapper(oPair.Key, oPair.Value, oPair.Order)
 							out.ch <- OrderedPair[K, V]{
-								Key:   pair.Key,
+								Key:   oPair.Key,
 								Value: newValue,
-								Order: pair.Order,
+								Order: oPair.Order,
 							}
 						} else {
 							return
@@ -151,20 +162,20 @@ func (s *OrderedMapStream[K, V]) Map(mapper OrderedMapMapperFn[K, V]) *OrderedMa
 }
 
 func (s *OrderedMapStream[K, V]) ForEach(effector OrderedMapForEachFn[K, V], options ...FlowOption) *OrderedMapStream[K, V] {
-	fc := flowControl{
-		concurrency: s.concurrency,
+	localFc := flowControl{
+		concurrency: s.fc.concurrency,
 	}
 
 	for _, o := range options {
-		o(&fc)
+		o(&localFc)
 	}
 
 	f := func(ctx context.Context, flow *flow[K, V]) *flow[K, V] {
-		out := newFlow[K, V](fc.concurrency)
+		out := newFlow[K, V](localFc.concurrency)
 		var wg sync.WaitGroup
-		wg.Add(int(fc.concurrency))
+		wg.Add(int(localFc.concurrency))
 
-		for i := 0; i < int(fc.concurrency); i++ {
+		for i := 0; i < int(localFc.concurrency); i++ {
 			go func() {
 				defer wg.Done()
 
@@ -207,7 +218,7 @@ func (s *OrderedMapStream[K, V]) ForEach(effector OrderedMapForEachFn[K, V], opt
 // works only in single threaded mode
 func (s *OrderedMapStream[K, V]) Take(n int) *OrderedMapStream[K, V] {
 	f := func(ctx context.Context, flow *flow[K, V]) *flow[K, V] {
-		out := newFlow[K, V](s.concurrency)
+		out := newFlow[K, V](DefaultConcurrency)
 
 		go func() {
 			defer close(out.ch)
@@ -257,24 +268,24 @@ func (s *OrderedMapStream[K, V]) First(
 		return getZero[OrderedPair[K, V]](), errors.Wrap(err, "failed to get the first value")
 	}
 
-	fc := flowControl{
-		concurrency: s.concurrency,
+	localFc := flowControl{
+		concurrency: s.fc.concurrency,
 	}
 
 	for _, o := range options {
-		o(&fc)
+		o(&localFc)
 	}
 
 	ctx, cancel := context.WithCancel(baseCtx)
 	defer cancel()
 
-	resultCh := make(chan OrderedPair[K, V], fc.concurrency)
-	errCh := make(chan error, fc.concurrency)
+	resultCh := make(chan OrderedPair[K, V], localFc.concurrency)
+	errCh := make(chan error, localFc.concurrency)
 
 	var wg sync.WaitGroup
-	wg.Add(int(fc.concurrency))
+	wg.Add(int(localFc.concurrency))
 
-	for i := 0; i < int(fc.concurrency); i++ {
+	for i := 0; i < int(localFc.concurrency); i++ {
 		go func() {
 			defer wg.Done()
 
@@ -352,11 +363,11 @@ resultLoop:
 }
 
 func (s *OrderedMapStream[K, V]) run(baseCtx context.Context) (*flow[K, V], error) {
-	if s.concurrency < 1 {
-		return nil, errors.Wrapf(ErrInvalidConcurrency, "should be greater than 1, got %d", s.concurrency)
+	if s.fc.concurrency < 1 {
+		return nil, errors.Wrapf(ErrInvalidConcurrency, "should be greater than 1, got %d", s.fc.concurrency)
 	}
 
-	inFlow := newFlow[K, V](s.concurrency)
+	inFlow := newFlow[K, V](s.fc.concurrency)
 
 	go func() {
 		ctx, cancel := context.WithCancel(baseCtx)

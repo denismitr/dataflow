@@ -2,12 +2,15 @@
 Golang generic streams 
 
 * OrderedMap
-* Ordered concurrent streams
-* UnorderedMap (todo)
-* GenericSlice (todo)
+* Ordered safe concurrent streams
+* Unordered map safe concurrent streams
+* GenericSlice safe concurrent streams
 
-* Map
+### Stream operations
+* Concurrent Map
 * Reduce 
-* ForEach
-* Filter
+* Concurrent ForEach
+* Concurrent Filter
 * Sort (todo) 
+* Take N items
+* First item that match a condition

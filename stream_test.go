@@ -147,7 +147,7 @@ func TestStream_FilterMapAndForEach(t *testing.T) {
 }
 
 func Test_Reduce(t *testing.T) {
-	t.Run("simple", func(t *testing.T) {
+	t.Run("simple reduce to struct", func(t *testing.T) {
 		type reducable struct {
 			a int
 			b int
@@ -166,17 +166,43 @@ func Test_Reduce(t *testing.T) {
 
 		stream := gs.NewReducableOrderedMapStream[string, reducable, result](om)
 
-		finalResult, err := stream.Reduce(func(carry result, k string, v reducable, order int) result {
-			carry.aSum = carry.aSum + v.a
-			carry.bSum = carry.bSum + v.b
-			carry.allSums = carry.allSums + carry.aSum + carry.bSum
-			return carry
-		}).PipeToResult(context.TODO())
+		finalResult, err := stream.Reduce(
+			context.TODO(),
+			func(carry result, k string, v reducable, order int) result {
+				carry.aSum = carry.aSum + v.a
+				carry.bSum = carry.bSum + v.b
+				carry.allSums = carry.allSums + carry.aSum + carry.bSum
+				return carry
+			})
 
 		require.NoError(t, err)
 		assert.Equal(t, 45, finalResult.aSum)
 		assert.Equal(t, 55, finalResult.bSum)
 		assert.Equal(t, 385, finalResult.allSums)
+	})
+
+	t.Run("reduce to same type as value after map", func(t *testing.T) {
+		om := gs.NewOrderedMap[string, int]()
+		for i := 0; i < 10_000; i++ {
+			om.Put(fmt.Sprintf("key_%d", i), i)
+		}
+
+		stream := gs.NewReducableOrderedMapStream[string, int, int](om)
+
+		reducedValue, err := stream.Map(func(key string, value int, order int) int {
+			time.Sleep(100 * time.Millisecond)
+			return value * 2
+		}, gs.Concurrency(500)).Filter(
+			func(key string, value int, order int) bool {
+				return value < 10
+			},
+			gs.Concurrency(20),
+		).Reduce(context.TODO(), func(carry int, key string, value int, order int) int {
+			return carry + value
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, 20, reducedValue)
 	})
 }
 

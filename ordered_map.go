@@ -51,8 +51,8 @@ func (om *OrderedMap[K, V]) Stream(options ...FlowOption) *OrderedMapStream[K, V
 	}
 
 	return &OrderedMapStream[K, V]{
-		om:          om,
-		concurrency: fc.concurrency,
+		om: om,
+		fc: fc,
 	}
 }
 
