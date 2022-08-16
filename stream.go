@@ -5,6 +5,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/denismitr/dll"
 	"github.com/pkg/errors"
 	"golang.org/x/exp/constraints"
 )
@@ -223,19 +224,27 @@ func (s *OrderedMapStream[K, V]) SortBy(lessFn LessPairFn[K, V]) *OrderedMapStre
 		go func() {
 			defer close(out.ch)
 
-			tempMap := NewOrderedMap[K, V]()
-			tempMap.lockEnabled = false // todo: method
+			tempList := dll.New[Pair[K, V]]()
 
 			for {
 				select {
-				case pair, ok := <-flow.ch:
+				case oPair, ok := <-flow.ch:
 					if ok {
-						tempMap.PutNX(pair.Key, pair.Value)
+						tempList.PushTail(dll.NewElement(Pair[K, V]{Key: oPair.Key, Value: oPair.Value}))
 					} else {
-						tempMap.SortBy(lessFn)
+						tempList.Sort(dll.CompareFn[Pair[K, V]](lessFn))
 
-						for oPair := range tempMap.pairs(ctx) {
-							out.ch <- oPair
+						curr := tempList.Head()
+						order := 0
+						for curr != nil {
+							out.ch <- OrderedPair[K, V]{
+								Key:   curr.Value().Key,
+								Value: curr.Value().Value,
+								Order: order,
+							}
+
+							curr = curr.Next()
+							order++
 						}
 
 						return

@@ -264,15 +264,25 @@ func Test_Sort(t *testing.T) {
 			om.Put(i, fmt.Sprintf("%d", i))
 		}
 
-		stream := gs.NewOrderedMapStream(om)
-		result, err := stream.Filter(func(key int, value string, order int) bool {
+		filterEventNumbers := func(key int, value string, order int) bool {
 			return key%2 == 0
-		}, gs.Concurrency(200)).SortBy(func(a gs.Pair[int, string], b gs.Pair[int, string]) bool {
-			return a.Key > b.Key // reverse
-		}).Take(20).PipeToOrderedMap(context.TODO())
+		}
+
+		stream := gs.NewOrderedMapStream(om)
+		result, err := stream.Filter(filterEventNumbers, gs.Concurrency(200)).
+			SortBy(func(a gs.Pair[int, string], b gs.Pair[int, string]) bool {
+				return a.Key < b.Key // reverse
+			}).
+			Take(20).PipeToOrderedMap(context.TODO())
 
 		require.NoError(t, err)
 		require.Equal(t, 20, result.Len())
+
+		expKey := 0
+		result.ForEach(func(key int, value string, order int) {
+			assert.Equal(t, expKey, key)
+			expKey += 2 // only event numbers should have remained
+		})
 	})
 }
 
