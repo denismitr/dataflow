@@ -4,7 +4,7 @@ import "golang.org/x/exp/constraints"
 
 type (
 	flow[K constraints.Ordered, V any] struct {
-		ch   chan OrderedPair[K, V]
+		ch   chan Pair[K, V]
 		stop chan struct{}
 	}
 
@@ -17,7 +17,7 @@ type (
 
 func newFlow[K constraints.Ordered, V any](concurrency uint32) *flow[K, V] {
 	return &flow[K, V]{
-		ch:   make(chan OrderedPair[K, V]),
+		ch:   make(chan Pair[K, V]),
 		stop: make(chan struct{}, concurrency),
 	}
 }

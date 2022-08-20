@@ -10,9 +10,9 @@ import (
 var ErrReducerRequired = errors.New("reducer function is required")
 
 type (
-	orderedMapReduceSink[K constraints.Ordered, V, R any] func(ctx context.Context, flow *flow[K, V]) (R, error)
+	keyValueReduceSink[K constraints.Ordered, V, R any] func(ctx context.Context, flow *flow[K, V]) (R, error)
 
-	ReducableOrderedMapStream[K constraints.Ordered, V, R any] struct {
+	ReducableKeyValueStream[K constraints.Ordered, V, R any] struct {
 		oms *OrderedMapStream[K, V]
 	}
 )
@@ -20,7 +20,7 @@ type (
 func NewReducableOrderedMapStream[K constraints.Ordered, V, R any](
 	om *OrderedMap[K, V],
 	options ...FlowOption,
-) *ReducableOrderedMapStream[K, V, R] {
+) *ReducableKeyValueStream[K, V, R] {
 	fc := flowControl{
 		concurrency: DefaultConcurrency,
 	}
@@ -29,7 +29,7 @@ func NewReducableOrderedMapStream[K constraints.Ordered, V, R any](
 		o(&fc)
 	}
 
-	return &ReducableOrderedMapStream[K, V, R]{
+	return &ReducableKeyValueStream[K, V, R]{
 		oms: &OrderedMapStream[K, V]{
 			om: om,
 			fc: fc,
@@ -37,25 +37,25 @@ func NewReducableOrderedMapStream[K constraints.Ordered, V, R any](
 	}
 }
 
-func (s *ReducableOrderedMapStream[K, V, R]) Map(
-	mapper OrderedMapMapperFn[K, V],
+func (s *ReducableKeyValueStream[K, V, R]) Map(
+	mapper MapKeyValueFn[K, V],
 	options ...FlowOption,
-) *ReducableOrderedMapStream[K, V, R] {
+) *ReducableKeyValueStream[K, V, R] {
 	s.oms.Map(mapper, options...)
 	return s
 }
 
-func (s *ReducableOrderedMapStream[K, V, R]) Filter(
-	filter OrderedMapFilterFn[K, V],
+func (s *ReducableKeyValueStream[K, V, R]) Filter(
+	filter FilterKeyValueFn[K, V],
 	options ...FlowOption,
-) *ReducableOrderedMapStream[K, V, R] {
+) *ReducableKeyValueStream[K, V, R] {
 	s.oms.Filter(filter, options...)
 	return s
 }
 
-func (s *ReducableOrderedMapStream[K, V, R]) Reduce(
+func (s *ReducableKeyValueStream[K, V, R]) Reduce(
 	ctx context.Context,
-	reducer OrderedMapReduceFn[K, V, R],
+	reducer ReduceKeyValueFn[K, V, R],
 ) (R, error) {
 	reduceSink := func(ctx context.Context, flow *flow[K, V]) (R, error) {
 		var result R
@@ -65,7 +65,7 @@ func (s *ReducableOrderedMapStream[K, V, R]) Reduce(
 				return getZero[R](), errors.Wrap(ctx.Err(), "reduce interrupted")
 			case pair, ok := <-flow.ch:
 				if ok {
-					result = reducer(result, pair.Key, pair.Value, pair.Order)
+					result = reducer(result, pair.Key, pair.Value)
 				} else {
 					return result, nil
 				}

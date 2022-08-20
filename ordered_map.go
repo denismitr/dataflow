@@ -227,7 +227,7 @@ func (om *OrderedMap[K, V]) SortBy(lessFn LessPairFn[K, V]) {
 	om.list.Sort(dll.CompareFn[Pair[K, V]](lessFn))
 }
 
-func (om *OrderedMap[K, V]) pairs(ctx context.Context) <-chan OrderedPair[K, V] {
+func (om *OrderedMap[K, V]) Pairs(ctx context.Context) <-chan OrderedPair[K, V] {
 	resultCh := make(chan OrderedPair[K, V])
 
 	go func() {

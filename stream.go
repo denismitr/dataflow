@@ -2,7 +2,6 @@ package gs
 
 import (
 	"context"
-	"sort"
 	"sync"
 
 	"github.com/denismitr/dll"
@@ -11,20 +10,20 @@ import (
 )
 
 type (
-	OrderedMapFilterFn[K constraints.Ordered, V any]    func(key K, value V, order int) bool
-	OrderedMapMapperFn[K constraints.Ordered, V any]    func(key K, value V, order int) V
-	OrderedMapForEachFn[K constraints.Ordered, V any]   func(key K, value V, order int)
-	OrderedMapReduceFn[K constraints.Ordered, V, R any] func(carry R, key K, value V, order int) R
-	OrderedMapFirstFn[K constraints.Ordered, V any]     func(key K, value V, order int) (bool, error)
+	FilterKeyValueFn[K constraints.Ordered, V any]    func(key K, value V) bool
+	MapKeyValueFn[K constraints.Ordered, V any]       func(key K, value V) V
+	ForEachKeyValueFn[K constraints.Ordered, V any]   func(key K, value V)
+	ReduceKeyValueFn[K constraints.Ordered, V, R any] func(carry R, key K, value V) R
+	FirstKeyValueFn[K constraints.Ordered, V any]     func(key K, value V) (bool, error)
 
-	orderedPipe[K constraints.Ordered, V any] func(ctx context.Context, flow *flow[K, V]) *flow[K, V]
+	keyValuePipe[K constraints.Ordered, V any] func(ctx context.Context, flow *flow[K, V]) *flow[K, V]
 )
 
 type OrderedMapStream[K constraints.Ordered, V any] struct {
 	om *OrderedMap[K, V]
 	fc flowControl
 
-	functions []orderedPipe[K, V]
+	functions []keyValuePipe[K, V]
 }
 
 func NewOrderedMapStream[K constraints.Ordered, V any](
@@ -46,7 +45,7 @@ func NewOrderedMapStream[K constraints.Ordered, V any](
 }
 
 func (s *OrderedMapStream[K, V]) Filter(
-	filter OrderedMapFilterFn[K, V],
+	filter FilterKeyValueFn[K, V],
 	options ...FlowOption,
 ) *OrderedMapStream[K, V] {
 	localFc := flowControl{
@@ -74,11 +73,10 @@ func (s *OrderedMapStream[K, V]) Filter(
 						return
 					case oPair, ok := <-flow.ch:
 						if ok {
-							if v := filter(oPair.Key, oPair.Value, oPair.Order); v {
-								out.ch <- OrderedPair[K, V]{
+							if v := filter(oPair.Key, oPair.Value); v {
+								out.ch <- Pair[K, V]{
 									Key:   oPair.Key,
 									Value: oPair.Value,
-									Order: oPair.Order,
 								}
 							}
 						} else {
@@ -105,7 +103,7 @@ func (s *OrderedMapStream[K, V]) Filter(
 }
 
 func (s *OrderedMapStream[K, V]) Map(
-	mapper OrderedMapMapperFn[K, V],
+	mapper MapKeyValueFn[K, V],
 	options ...FlowOption,
 ) *OrderedMapStream[K, V] {
 	localFc := flowControl{
@@ -131,13 +129,12 @@ func (s *OrderedMapStream[K, V]) Map(
 					case <-out.stop:
 						flow.stop <- struct{}{}
 						return
-					case oPair, ok := <-flow.ch:
+					case pair, ok := <-flow.ch:
 						if ok {
-							newValue := mapper(oPair.Key, oPair.Value, oPair.Order)
-							out.ch <- OrderedPair[K, V]{
-								Key:   oPair.Key,
+							newValue := mapper(pair.Key, pair.Value)
+							out.ch <- Pair[K, V]{
+								Key:   pair.Key,
 								Value: newValue,
-								Order: oPair.Order,
 							}
 						} else {
 							return
@@ -162,7 +159,7 @@ func (s *OrderedMapStream[K, V]) Map(
 }
 
 func (s *OrderedMapStream[K, V]) ForEach(
-	effector OrderedMapForEachFn[K, V],
+	effector ForEachKeyValueFn[K, V],
 	options ...FlowOption,
 ) *OrderedMapStream[K, V] {
 	localFc := flowControl{
@@ -189,11 +186,10 @@ func (s *OrderedMapStream[K, V]) ForEach(
 						return
 					case pair, ok := <-flow.ch:
 						if ok {
-							effector(pair.Key, pair.Value, pair.Order)
-							out.ch <- OrderedPair[K, V]{
+							effector(pair.Key, pair.Value)
+							out.ch <- Pair[K, V]{
 								Key:   pair.Key,
 								Value: pair.Value,
-								Order: pair.Order,
 							}
 						} else {
 							return
@@ -228,19 +224,18 @@ func (s *OrderedMapStream[K, V]) SortBy(lessFn LessPairFn[K, V]) *OrderedMapStre
 
 			for {
 				select {
-				case oPair, ok := <-flow.ch:
+				case pair, ok := <-flow.ch:
 					if ok {
-						tempList.PushTail(dll.NewElement(Pair[K, V]{Key: oPair.Key, Value: oPair.Value}))
+						tempList.PushTail(dll.NewElement(Pair[K, V]{Key: pair.Key, Value: pair.Value}))
 					} else {
 						tempList.Sort(dll.CompareFn[Pair[K, V]](lessFn))
 
 						curr := tempList.Head()
 						order := 0
 						for curr != nil {
-							out.ch <- OrderedPair[K, V]{
+							out.ch <- Pair[K, V]{
 								Key:   curr.Value().Key,
 								Value: curr.Value().Value,
-								Order: order,
 							}
 
 							curr = curr.Next()
@@ -279,10 +274,9 @@ func (s *OrderedMapStream[K, V]) Take(n int) *OrderedMapStream[K, V] {
 				select {
 				case pair, ok := <-flow.ch:
 					if ok {
-						out.ch <- OrderedPair[K, V]{
+						out.ch <- Pair[K, V]{
 							Key:   pair.Key,
 							Value: pair.Value,
-							Order: pair.Order,
 						}
 						taken++
 					} else {
@@ -311,12 +305,12 @@ func (s *OrderedMapStream[K, V]) Take(n int) *OrderedMapStream[K, V] {
 
 func (s *OrderedMapStream[K, V]) First(
 	baseCtx context.Context,
-	matcher OrderedMapFirstFn[K, V],
+	matcher FirstKeyValueFn[K, V],
 	options ...FlowOption,
-) (OrderedPair[K, V], error) {
+) (Pair[K, V], error) {
 	outFlow, err := s.run(baseCtx)
 	if err != nil {
-		return getZero[OrderedPair[K, V]](), errors.Wrap(err, "failed to get the first value")
+		return getZero[Pair[K, V]](), errors.Wrap(err, "failed to get the first value")
 	}
 
 	localFc := flowControl{
@@ -330,7 +324,7 @@ func (s *OrderedMapStream[K, V]) First(
 	ctx, cancel := context.WithCancel(baseCtx)
 	defer cancel()
 
-	resultCh := make(chan OrderedPair[K, V], localFc.concurrency)
+	resultCh := make(chan Pair[K, V], localFc.concurrency)
 	errCh := make(chan error, localFc.concurrency)
 
 	var wg sync.WaitGroup
@@ -344,14 +338,14 @@ func (s *OrderedMapStream[K, V]) First(
 				select {
 				case <-ctx.Done():
 					return
-				case oPair, ok := <-outFlow.ch:
+				case pair, ok := <-outFlow.ch:
 					if ok {
-						match, err := matcher(oPair.Key, oPair.Value, oPair.Order)
+						match, err := matcher(pair.Key, pair.Value)
 						if err != nil {
 							errCh <- err
 						}
 						if match {
-							resultCh <- oPair
+							resultCh <- pair
 						}
 					} else {
 						return
@@ -371,10 +365,10 @@ func (s *OrderedMapStream[K, V]) First(
 		select {
 		case err, ok := <-errCh:
 			if ok {
-				return getZero[OrderedPair[K, V]](), errors.Wrap(err, "no match found")
+				return getZero[Pair[K, V]](), errors.Wrap(err, "no match found")
 			}
 		case <-ctx.Done():
-			return getZero[OrderedPair[K, V]](), errors.Wrap(ctx.Err(), "no match found")
+			return getZero[Pair[K, V]](), errors.Wrap(ctx.Err(), "no match found")
 		case result, ok := <-resultCh:
 			if ok {
 				return result, nil
@@ -391,14 +385,16 @@ func (s *OrderedMapStream[K, V]) PipeToOrderedMap(ctx context.Context) (*Ordered
 		return nil, err
 	}
 
-	var pairSlice OrderedPairs[K, V]
+	om := NewOrderedMap[K, V]()
+	om.lockEnabled = false
+	defer func() { om.lockEnabled = true }()
 
 resultLoop:
 	for {
 		select {
 		case result, ok := <-outFlow.ch:
 			if ok {
-				pairSlice = append(pairSlice, result)
+				om.Put(result.Key, result.Value)
 			} else {
 				break resultLoop
 			}
@@ -407,10 +403,7 @@ resultLoop:
 		}
 	}
 
-	sort.Sort(pairSlice)
-
-	// todo: sort
-	return fromOrderedPairs(pairSlice), nil
+	return om, nil
 }
 
 func (s *OrderedMapStream[K, V]) run(baseCtx context.Context) (*flow[K, V], error) {
@@ -428,9 +421,9 @@ func (s *OrderedMapStream[K, V]) run(baseCtx context.Context) (*flow[K, V], erro
 			close(inFlow.ch)
 		}()
 
-		for p := range s.om.pairs(ctx) {
+		for oPair := range s.om.Pairs(ctx) {
 			select {
-			case inFlow.ch <- p:
+			case inFlow.ch <- Pair[K, V]{Key: oPair.Key, Value: oPair.Value}:
 			case <-inFlow.stop:
 				return
 			case <-baseCtx.Done():
