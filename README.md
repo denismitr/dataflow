@@ -1,4 +1,4 @@
-# Generic Streams
+# Data Flow
 Golang generic streams 
 
 * OrderedMap

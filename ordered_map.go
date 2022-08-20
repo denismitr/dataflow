@@ -10,6 +10,8 @@ import (
 
 type LessPairFn[K constraints.Ordered, V any] func(a Pair[K, V], b Pair[K, V]) (less bool)
 
+type OrderedMapOption[K constraints.Ordered, V any] func(om *OrderedMap[K, V])
+
 type OrderedMap[K constraints.Ordered, V any] struct {
 	m           map[K]*dll.Element[Pair[K, V]]
 	list        *dll.DoublyLinkedList[Pair[K, V]]
