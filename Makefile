@@ -20,3 +20,10 @@ test:
 	@go test -v -race ./...
 	@sleep 1
 	@echo All done.	
+
+.PHONY: test-keyvalue
+test-keyvalue:
+	$(info Running unit tests for keyvalue...)
+	@go test -v -race ./keyvalue/... -count=1
+	@sleep 1
+	@echo All tests done.	

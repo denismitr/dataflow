@@ -1,4 +1,4 @@
-package gs
+package utils
 
 type Order uint8
 
@@ -7,7 +7,7 @@ const (
 	AscOrder
 )
 
-func getZero[T any]() T {
+func GetZero[T any]() T {
 	var result T
 	return result
 }
