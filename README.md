@@ -1,16 +1,6 @@
 # Data Flow
-Golang generic streams 
+Golang generic data structures.
 
-* OrderedMap
-* Ordered safe concurrent streams
-* Unordered map safe concurrent streams
-* GenericSlice safe concurrent streams
+Offers the following packages
 
-### Stream operations
-* Concurrent Map
-* Reduce 
-* Concurrent ForEach
-* Concurrent Filter
-* Sort (todo) 
-* Take N items
-* First item that match a condition
+* [KeyValue package](keyvalue/readme.md)
