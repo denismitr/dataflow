@@ -27,3 +27,8 @@ test-keyvalue:
 	@go test -v -race ./keyvalue/... -count=1
 	@sleep 1
 	@echo All tests done.	
+
+.PHONY: lint
+lint:
+	$(info Running linters...)
+	@golangci-lint run  --config=.golangci.yml --timeout=180s ./...

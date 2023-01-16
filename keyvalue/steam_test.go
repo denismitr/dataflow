@@ -153,7 +153,10 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 			PipeInto(context.TODO(), dst)
 
 		elapsed := time.Since(start)
-		t.Logf("\n\nFilter, Map and Iterate stream with common concurrency 100 and 50 in forEach. Elapsed in %s", elapsed.String())
+		t.Logf(
+			"\n\nFilter, Map and Iterate stream with common concurrency 100 and 50 in forEach. Elapsed in %s",
+			elapsed.String(),
+		)
 
 		require.NoError(t, err)
 		require.Equal(t, 500, dst.Len())
@@ -168,8 +171,6 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 		assert.Equal(t, uint64(500), forEachCounter)
 	})
 }
-
-
 
 func durationIsLess(t *testing.T, a, b time.Duration) {
 	t.Helper()

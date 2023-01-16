@@ -43,7 +43,6 @@ func Filter[K comparable, V any](
 		if pred(k, v) {
 			result[k] = v
 		}
-
 	}
 	return result
 }
