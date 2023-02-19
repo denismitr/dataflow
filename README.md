@@ -14,3 +14,6 @@ Golang generic streams
 * Sort (todo) 
 * Take N items
 * First item that match a condition
+
+### TODO
+* Sets
