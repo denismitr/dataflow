@@ -30,7 +30,7 @@ type (
 	}
 )
 
-func NewStream[K comparable, V any](
+func New[K comparable, V any](
 	source StreamSource[K, V],
 	options ...FlowOption,
 ) *Stream[K, V] {

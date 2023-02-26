@@ -1,28 +1,29 @@
-package keyvalue
+package orderedmap
 
 import (
 	"context"
+	"github.com/denismitr/dataflow/utils"
 
 	"github.com/denismitr/dll"
 )
 
 type (
 	OrderedMap[K comparable, V any] struct {
-		m    map[K]*dll.Element[Pair[K, V]]
-		list *dll.DoublyLinkedList[Pair[K, V]]
+		m    map[K]*dll.Element[utils.Pair[K, V]]
+		list *dll.DoublyLinkedList[utils.Pair[K, V]]
 	}
 
-	OrderedFilterFn[K comparable, V any]       func(key K, value V, order int) bool
-	OrderedForEachFn[K comparable, V any]      func(key K, value V, order int)
-	OrderedForEachUntilFn[K comparable, V any] func(key K, value V, order int) bool
-	OrderedMapFn[K comparable, V any]          func(key K, value V, order int) V
-	LessPairFn[K comparable, V any]            func(a Pair[K, V], b Pair[K, V]) (less bool)
+	FilterFn[K comparable, V any]       func(key K, value V, order int) bool
+	ForEachFn[K comparable, V any]      func(key K, value V, order int)
+	ForEachUntilFn[K comparable, V any] func(key K, value V, order int) bool
+	TransformerFn[K comparable, V any]  func(key K, value V, order int) V
+	LessPairFn[K comparable, V any]     func(a utils.Pair[K, V], b utils.Pair[K, V]) (less bool)
 )
 
 func NewOrderedMap[K comparable, V any]() *OrderedMap[K, V] {
 	return &OrderedMap[K, V]{
-		m:    make(map[K]*dll.Element[Pair[K, V]]),
-		list: dll.New[Pair[K, V]](),
+		m:    make(map[K]*dll.Element[utils.Pair[K, V]]),
+		list: dll.New[utils.Pair[K, V]](),
 	}
 }
 
@@ -30,14 +31,14 @@ func NewOrderedMap[K comparable, V any]() *OrderedMap[K, V] {
 func (om *OrderedMap[K, V]) Set(key K, value V) {
 	existingEl, found := om.m[key]
 	if !found {
-		p := Pair[K, V]{Key: key, Value: value}
+		p := utils.Pair[K, V]{Key: key, Value: value}
 		newEl := dll.NewElement(p)
 		om.m[key] = newEl
 		om.list.PushTail(newEl)
 		return
 	}
 
-	existingEl.ReplaceValue(Pair[K, V]{Key: key, Value: value})
+	existingEl.ReplaceValue(utils.Pair[K, V]{Key: key, Value: value})
 }
 
 func (om *OrderedMap[K, V]) SetNX(key K, value V) (added bool) {
@@ -46,7 +47,7 @@ func (om *OrderedMap[K, V]) SetNX(key K, value V) (added bool) {
 		return false
 	}
 
-	p := Pair[K, V]{Key: key, Value: value}
+	p := utils.Pair[K, V]{Key: key, Value: value}
 	newEl := dll.NewElement(p)
 	om.m[key] = newEl
 	om.list.PushTail(newEl)
@@ -56,7 +57,7 @@ func (om *OrderedMap[K, V]) SetNX(key K, value V) (added bool) {
 func (om *OrderedMap[K, V]) HasGet(key K) (V, bool) {
 	el, found := om.m[key]
 	if !found {
-		return getZero[V](), false
+		return utils.GetZero[V](), false
 	}
 
 	return el.Value().Value, true
@@ -65,7 +66,7 @@ func (om *OrderedMap[K, V]) HasGet(key K) (V, bool) {
 func (om *OrderedMap[K, V]) Get(key K) V {
 	el, found := om.m[key]
 	if !found {
-		return getZero[V]()
+		return utils.GetZero[V]()
 	}
 
 	return el.Value().Value
@@ -79,7 +80,7 @@ func (om *OrderedMap[K, V]) Has(key K) bool {
 func (om *OrderedMap[K, V]) HasRemove(key K) (V, bool) {
 	el, exists := om.m[key]
 	if !exists {
-		return getZero[V](), false
+		return utils.GetZero[V](), false
 	}
 
 	v := el.Value().Value
@@ -92,7 +93,7 @@ func (om *OrderedMap[K, V]) HasRemove(key K) (V, bool) {
 func (om *OrderedMap[K, V]) Remove(key K) V {
 	el, exists := om.m[key]
 	if !exists {
-		return getZero[V]()
+		return utils.GetZero[V]()
 	}
 
 	v := el.Value().Value
@@ -102,8 +103,8 @@ func (om *OrderedMap[K, V]) Remove(key K) V {
 	return v
 }
 
-func (om *OrderedMap[K, V]) Pairs(ctx context.Context) <-chan Pair[K, V] {
-	resultCh := make(chan Pair[K, V])
+func (om *OrderedMap[K, V]) Pairs(ctx context.Context) <-chan utils.Pair[K, V] {
+	resultCh := make(chan utils.Pair[K, V])
 
 	go func() {
 		defer close(resultCh)
@@ -116,7 +117,7 @@ func (om *OrderedMap[K, V]) Pairs(ctx context.Context) <-chan Pair[K, V] {
 			}
 
 			pair := curr.Value()
-			op := Pair[K, V]{
+			op := utils.Pair[K, V]{
 				Key:   pair.Key,
 				Value: pair.Value,
 			}
@@ -130,15 +131,11 @@ func (om *OrderedMap[K, V]) Pairs(ctx context.Context) <-chan Pair[K, V] {
 	return resultCh
 }
 
-func (om *OrderedMap[K, V]) Stream(options ...FlowOption) *Stream[K, V] {
-	return NewStream[K, V](om, options...)
-}
-
 func (om *OrderedMap[K, V]) Len() int {
 	return len(om.m)
 }
 
-func (om *OrderedMap[K, V]) ForEach(f OrderedForEachFn[K, V]) {
+func (om *OrderedMap[K, V]) ForEach(f ForEachFn[K, V]) {
 	curr := om.list.Head()
 	order := 0
 	for curr != nil {
@@ -148,7 +145,7 @@ func (om *OrderedMap[K, V]) ForEach(f OrderedForEachFn[K, V]) {
 	}
 }
 
-func (om *OrderedMap[K, V]) Map(f func(key K, value V, order int) V) *OrderedMap[K, V] {
+func (om *OrderedMap[K, V]) Transform(f TransformerFn[K, V]) *OrderedMap[K, V] {
 	result := NewOrderedMap[K, V]()
 
 	curr := om.list.Head()
@@ -163,7 +160,7 @@ func (om *OrderedMap[K, V]) Map(f func(key K, value V, order int) V) *OrderedMap
 	return result
 }
 
-func (om *OrderedMap[K, V]) Filter(f OrderedFilterFn[K, V]) *OrderedMap[K, V] {
+func (om *OrderedMap[K, V]) Filter(f FilterFn[K, V]) *OrderedMap[K, V] {
 	result := NewOrderedMap[K, V]()
 
 	curr := om.list.Head()
@@ -181,7 +178,7 @@ func (om *OrderedMap[K, V]) Filter(f OrderedFilterFn[K, V]) *OrderedMap[K, V] {
 	return result
 }
 
-func (om *OrderedMap[K, V]) ForEachUntil(ff OrderedForEachUntilFn[K, V]) *OrderedMap[K, V] {
+func (om *OrderedMap[K, V]) ForEachUntil(ff ForEachUntilFn[K, V]) *OrderedMap[K, V] {
 	curr := om.list.Head()
 	order := 0
 	for curr != nil {
@@ -213,12 +210,12 @@ func (om *OrderedMap[K, V]) Clone() *OrderedMap[K, V] {
 // SortBy - sorts the collection and returns the sorted one
 func (om *OrderedMap[K, V]) SortBy(lessFn LessPairFn[K, V]) *OrderedMap[K, V] {
 	clone := om.Clone()
-	clone.list.Sort(dll.CompareFn[Pair[K, V]](lessFn))
+	clone.list.Sort(dll.CompareFn[utils.Pair[K, V]](lessFn))
 	return clone
 }
 
-// SortBy - sorts the collection in place
+// SortInPlaceBy - sorts the collection in place
 func (om *OrderedMap[K, V]) SortInPlaceBy(lessFn LessPairFn[K, V]) *OrderedMap[K, V] {
-	om.list.Sort(dll.CompareFn[Pair[K, V]](lessFn))
+	om.list.Sort(dll.CompareFn[utils.Pair[K, V]](lessFn))
 	return om
 }

@@ -3,23 +3,24 @@ package keyvalue_test
 import (
 	"context"
 	"fmt"
+	"github.com/denismitr/dataflow/orderedmap"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/denismitr/dataflow/keyvalue"
+	"github.com/denismitr/dataflow/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestStream_Filter(t *testing.T) {
 	t.Run("concurrency 100", func(t *testing.T) {
-		om := keyvalue.NewOrderedMap[int, string]()
+		om := orderedmap.NewOrderedMap[int, string]()
 		for i := 0; i < 100; i++ {
 			om.Set(i, fmt.Sprintf("%d", i))
 		}
 
-		dst := keyvalue.NewOrderedMap[int, string]()
+		dst := orderedmap.NewOrderedMap[int, string]()
 		start := time.Now()
 		err := om.Stream(keyvalue.Concurrency(100)).
 			Filter(func(ctx context.Context, key int, value string) (bool, error) {
@@ -41,7 +42,7 @@ func TestStream_Filter(t *testing.T) {
 
 func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 	t.Run("filter and map with common concurrency of 50", func(t *testing.T) {
-		om := keyvalue.NewOrderedMap[int, string]()
+		om := orderedmap.NewOrderedMap[int, string]()
 		for i := 0; i < 100; i++ {
 			om.Set(i, fmt.Sprintf("%d", i))
 		}
@@ -56,13 +57,13 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 		}
 
 		start := time.Now()
-		dst := keyvalue.NewOrderedMap[int, string]()
+		dst := orderedmap.NewOrderedMap[int, string]()
 		err := om.
 			Stream(keyvalue.Concurrency(50)).
 			Filter(f).Map(m).PipeInto(context.TODO(), dst)
 
 		elapsed := time.Since(start)
-		t.Logf("\n\nFilter and Map stream with concurrency 50 elapsed in %s", elapsed.String())
+		t.Logf("\n\nFilter and Transform stream with concurrency 50 elapsed in %s", elapsed.String())
 
 		require.NoError(t, err)
 		require.Equal(t, 50, dst.Len())
@@ -77,7 +78,7 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 	})
 
 	t.Run("concurrency 20 and take 4 at the end", func(t *testing.T) {
-		om := keyvalue.NewOrderedMap[int, string]()
+		om := orderedmap.NewOrderedMap[int, string]()
 		for i := 0; i < 1_000; i++ {
 			om.SetNX(i, fmt.Sprintf("%d", i))
 		}
@@ -96,7 +97,7 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 			return value + "-mapped", nil
 		}
 
-		dst := keyvalue.NewOrderedMap[int, string]()
+		dst := orderedmap.NewOrderedMap[int, string]()
 		start := time.Now()
 		err := om.Stream(keyvalue.Concurrency(20)).
 			Filter(f).
@@ -105,7 +106,7 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 			PipeInto(ctx, dst)
 
 		elapsed := time.Since(start)
-		t.Logf("\n\nFilter and Map stream with concurrency 50 and take 4 elapsed in %s", elapsed.String())
+		t.Logf("\n\nFilter and Transform stream with concurrency 50 and take 4 elapsed in %s", elapsed.String())
 
 		require.NoError(t, err)
 		require.Equal(t, 4, dst.Len())
@@ -120,7 +121,7 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 	})
 
 	t.Run("filter and map with common concurrency of 100 and forEach with 50", func(t *testing.T) {
-		om := keyvalue.NewOrderedMap[int, string]()
+		om := orderedmap.NewOrderedMap[int, string]()
 		for i := 0; i < 1_000; i++ {
 			om.Set(i, fmt.Sprintf("%d", i))
 		}
@@ -143,7 +144,7 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 			return nil
 		}
 
-		dst := keyvalue.NewOrderedMap[int, string]()
+		dst := orderedmap.NewOrderedMap[int, string]()
 		start := time.Now()
 		err := om.
 			Stream(keyvalue.Concurrency(100)).
@@ -154,7 +155,7 @@ func TestStream_FilterMapTakeAndForEach(t *testing.T) {
 
 		elapsed := time.Since(start)
 		t.Logf(
-			"\n\nFilter, Map and Iterate stream with common concurrency 100 and 50 in forEach. Elapsed in %s",
+			"\n\nFilter, Transform and Iterate stream with common concurrency 100 and 50 in forEach. Elapsed in %s",
 			elapsed.String(),
 		)
 

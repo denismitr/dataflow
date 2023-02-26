@@ -3,7 +3,7 @@ package keyvalue_test
 import (
 	"testing"
 
-	"github.com/denismitr/dataflow/keyvalue"
+	"github.com/denismitr/dataflow/stream"
 	"github.com/stretchr/testify/assert"
 )
 

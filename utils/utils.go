@@ -7,6 +7,11 @@ const (
 	AscOrder
 )
 
+type Pair[K comparable, V any] struct {
+	Key   K
+	Value V
+}
+
 func GetZero[T any]() T {
 	var result T
 	return result
