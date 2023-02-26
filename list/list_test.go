@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/denismitr/gs/list"
+	"github.com/denismitr/dataflow/list"
 )
 
 func Test_MapReduce(t *testing.T) {

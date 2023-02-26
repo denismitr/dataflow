@@ -1,8 +1,10 @@
-package keyvalue
+package stream
 
 import (
 	"context"
 	"sync"
+
+	"github.com/denismitr/dataflow/utils"
 )
 
 const (
@@ -16,7 +18,7 @@ type (
 	) *flow[K, V]
 
 	StreamSource[K comparable, V any] interface {
-		Pairs(context.Context) <-chan Pair[K, V]
+		Pairs(context.Context) <-chan utils.Pair[K, V]
 	}
 
 	StreamDestination[K comparable, V any] interface {
@@ -77,7 +79,7 @@ func (s *Stream[K, V]) ForEach(
 					case pair, ok := <-flow.ch:
 						if ok {
 							_ = iterator(ctx, pair.Key, pair.Value) // todo: handle error
-							out.ch <- Pair[K, V]{
+							out.ch <- utils.Pair[K, V]{
 								Key:   pair.Key,
 								Value: pair.Value,
 							}
@@ -137,7 +139,7 @@ func (s *Stream[K, V]) Filter(
 								flow.stop <- struct{}{}
 								// todo: flow.errors <- err
 							} else if v {
-								out.ch <- Pair[K, V]{
+								out.ch <- utils.Pair[K, V]{
 									Key:   oPair.Key,
 									Value: oPair.Value,
 								}
@@ -197,7 +199,7 @@ func (s *Stream[K, V]) Map(
 					case pair, ok := <-flow.ch:
 						if ok {
 							newValue, _ := mapper(ctx, pair.Key, pair.Value)
-							out.ch <- Pair[K, V]{
+							out.ch <- utils.Pair[K, V]{
 								Key:   pair.Key,
 								Value: newValue,
 							}
@@ -236,7 +238,7 @@ func (s *Stream[K, V]) Take(n int) *Stream[K, V] {
 				select {
 				case pair, ok := <-flow.ch:
 					if ok {
-						out.ch <- Pair[K, V]{
+						out.ch <- utils.Pair[K, V]{
 							Key:   pair.Key,
 							Value: pair.Value,
 						}

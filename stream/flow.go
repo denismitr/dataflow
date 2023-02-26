@@ -1,4 +1,6 @@
-package keyvalue
+package stream
+
+import "github.com/denismitr/dataflow/utils"
 
 type (
 	flowControl struct {
@@ -6,7 +8,7 @@ type (
 	}
 
 	flow[K comparable, V any] struct {
-		ch   chan Pair[K, V]
+		ch   chan utils.Pair[K, V]
 		stop chan struct{}
 	}
 
@@ -15,7 +17,7 @@ type (
 
 func newFlow[K comparable, V any](concurrency uint32) *flow[K, V] {
 	return &flow[K, V]{
-		ch:   make(chan Pair[K, V]),
+		ch:   make(chan utils.Pair[K, V]),
 		stop: make(chan struct{}, concurrency),
 	}
 }

@@ -2,6 +2,7 @@ package list
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
 
@@ -57,6 +58,10 @@ func (f *flow[I, O]) start(ctx context.Context) {
 					}
 					result, err := f.mapper(item.idx, item.value)
 					if err != nil {
+						if errors.Is(err, ErrSkip) {
+							continue
+						}
+
 						f.errCh <- err
 						return
 					}

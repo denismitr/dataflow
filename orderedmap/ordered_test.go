@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/denismitr/dataflow/stream"
+	"github.com/denismitr/dataflow/orderedmap"
+	"github.com/denismitr/dataflow/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOrderedMap_Len(t *testing.T) {
 	t.Run("after put", func(t *testing.T) {
-		om := NewOrderedMap[string, int]()
+		om := orderedmap.NewOrderedMap[string, int]()
 		om.Set("foo", 1)
 		om.Set("bar", 2)
 
@@ -26,7 +27,7 @@ func TestOrderedMap_Len(t *testing.T) {
 
 func TestOrderedMap_Get(t *testing.T) {
 	t.Run("get existing and non existing value", func(t *testing.T) {
-		om := NewOrderedMap[string, int]()
+		om := orderedmap.NewOrderedMap[string, int]()
 		om.Set("foo", 1)
 		om.Set("bar", 2)
 
@@ -48,7 +49,7 @@ func TestOrderedMap_Set(t *testing.T) {
 	t.Run("it will override a value", func(t *testing.T) {
 		const N = 1_000
 
-		om := NewOrderedMap[string, int]()
+		om := orderedmap.NewOrderedMap[string, int]()
 		for i := 0; i < N; i++ {
 			om.Set(fmt.Sprintf("key_%d", i), i)
 		}
@@ -70,7 +71,7 @@ func TestOrderedMap_SetNX(t *testing.T) {
 	t.Run("it will never override a value", func(t *testing.T) {
 		const N = 1_000
 
-		om := NewOrderedMap[string, int]()
+		om := orderedmap.NewOrderedMap[string, int]()
 
 		for i := 0; i < N; i++ {
 			om.SetNX(fmt.Sprintf("key_%d", i), i)
@@ -91,7 +92,7 @@ func TestOrderedMap_SetNX(t *testing.T) {
 
 func TestOrderedMap_Remove(t *testing.T) {
 	t.Run("remove all existing keys starting from the middle", func(t *testing.T) {
-		om := NewOrderedMap[string, string]()
+		om := orderedmap.NewOrderedMap[string, string]()
 		om.Set("foo", "1")
 		om.Set("bar", "2")
 		om.Set("baz", "5")
@@ -119,7 +120,7 @@ func TestOrderedMap_Remove(t *testing.T) {
 
 func TestOrderedMap_HasRemove(t *testing.T) {
 	t.Run("remove all existing keys starting from the middle", func(t *testing.T) {
-		om := NewOrderedMap[string, string]()
+		om := orderedmap.NewOrderedMap[string, string]()
 		om.Set("foo", "1")
 		om.Set("bar", "2")
 		om.Set("baz", "5")
@@ -170,7 +171,7 @@ func TestOrderedMap_HasRemove(t *testing.T) {
 func TestOrderedMap_ForEach(t *testing.T) {
 	t.Run("iterate over an empty map", func(t *testing.T) {
 		iterations := 0
-		om := NewOrderedMap[string, string]()
+		om := orderedmap.NewOrderedMap[string, string]()
 		om.ForEach(func(k string, v string, order int) {
 			iterations++
 		})
@@ -181,7 +182,7 @@ func TestOrderedMap_ForEach(t *testing.T) {
 		iterations := 0
 		var keyOrder []string
 
-		om := NewOrderedMap[string, string]()
+		om := orderedmap.NewOrderedMap[string, string]()
 		om.Set("foo", "1")
 		om.Set("bar", "2")
 		om.Set("baz", "5")
@@ -203,7 +204,7 @@ func TestOrderedMap_ForEach(t *testing.T) {
 
 func TestOrderedMap_ForEachUntil(t *testing.T) {
 	t.Run("find first by value and key", func(t *testing.T) {
-		om := NewOrderedMap[int, string]()
+		om := orderedmap.NewOrderedMap[int, string]()
 		for i := 0; i < 1_000; i++ {
 			om.Set(i, fmt.Sprintf("%d", i))
 		}
@@ -211,7 +212,7 @@ func TestOrderedMap_ForEachUntil(t *testing.T) {
 		var foundValue string
 		var foundKey int
 		var foundOrder int
-		om.Map(func(key int, value string, order int) string {
+		om.Transform(func(key int, value string, order int) string {
 			return "prefix-" + value
 		}).ForEachUntil(func(key int, value string, order int) bool {
 			if key == 567 && value == "prefix-567" {
@@ -233,8 +234,8 @@ func TestOrderedMap_ForEachUntil(t *testing.T) {
 func TestOrderedMap_Map(t *testing.T) {
 	t.Run("map over an empty ordered map", func(t *testing.T) {
 		iterations := 0
-		om := NewOrderedMap[string, float64]()
-		nom := om.Map(func(k string, v float64, order int) float64 {
+		om := orderedmap.NewOrderedMap[string, float64]()
+		nom := om.Transform(func(k string, v float64, order int) float64 {
 			iterations++
 			return v
 		})
@@ -247,7 +248,7 @@ func TestOrderedMap_Map(t *testing.T) {
 		iterations := 0
 		var keyOrder []string
 
-		om := NewOrderedMap[string, float64]()
+		om := orderedmap.NewOrderedMap[string, float64]()
 		om.Set("foo", 1)
 		om.Set("bar", 2.4)
 		om.Set("baz", 5.7)
@@ -257,7 +258,7 @@ func TestOrderedMap_Map(t *testing.T) {
 		om.SetNX("abc123", 321.4)
 		om.Set("abc-000", 0)
 
-		nom := om.Map(func(k string, v float64, order int) float64 {
+		nom := om.Transform(func(k string, v float64, order int) float64 {
 			iterations++
 			keyOrder = append(keyOrder, k)
 			return v + 1
@@ -281,7 +282,7 @@ func TestOrderedMap_Map(t *testing.T) {
 func TestOrderedMap_Filter(t *testing.T) {
 	t.Run("filter an empty ordered map will result in an empty map", func(t *testing.T) {
 		iterations := 0
-		om := NewOrderedMap[string, float64]()
+		om := orderedmap.NewOrderedMap[string, float64]()
 		nom := om.Filter(func(k string, v float64, order int) bool {
 			iterations++
 			return true
@@ -295,7 +296,7 @@ func TestOrderedMap_Filter(t *testing.T) {
 		iterations := 0
 		var keyOrder []string
 
-		om := NewOrderedMap[string, float64]()
+		om := orderedmap.NewOrderedMap[string, float64]()
 		om.Set("foo", 1)
 		om.Set("bar", 2.4)
 		om.Set("baz", 5.7)
@@ -334,7 +335,7 @@ func TestOrderedMap_Filter(t *testing.T) {
 
 func Test_Sort(t *testing.T) {
 	t.Run("sort and test take top 10 elements", func(t *testing.T) {
-		om := NewOrderedMap[int, string]()
+		om := orderedmap.NewOrderedMap[int, string]()
 		for i := 0; i < 1_000; i++ {
 			om.Set(i, fmt.Sprintf("%d", i))
 		}
@@ -343,7 +344,7 @@ func Test_Sort(t *testing.T) {
 			return key%2 == 0
 		}
 
-		sorter := func(a keyvalue.Pair[int, string], b keyvalue.Pair[int, string]) bool {
+		sorter := func(a utils.Pair[int, string], b utils.Pair[int, string]) bool {
 			return a.Key < b.Key // reverse
 		}
 

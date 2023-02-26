@@ -4,9 +4,7 @@ go 1.18
 
 require (
 	github.com/denismitr/dll v0.3.0
-	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.0
-	golang.org/x/exp v0.0.0-20220713135740-79cabaa25d75
 )
 
 require (

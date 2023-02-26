@@ -1,4 +1,4 @@
-package keyvalue_test
+package stream_test
 
 import (
 	"testing"
@@ -19,7 +19,7 @@ func TestMap(t *testing.T) {
 			{A: 30, B: "bar"}: 2,
 		}
 
-		result := keyvalue.Map[structKey, int](m, func(key structKey, value int) int {
+		result := stream.Map(m, func(key structKey, value int) int {
 			if key.A == 1 && key.B == "foo" {
 				return (value + value) * 3
 			}
