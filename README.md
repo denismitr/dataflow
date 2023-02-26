@@ -1,10 +1,14 @@
 # Data Flow
-Golang generic streams 
+Golang generic data structures.
 
-* OrderedMap
-* Ordered safe concurrent streams
-* Unordered map safe concurrent streams
-* GenericSlice safe concurrent streams
+Offers the following packages
+
+
+* [stream package](stream/readme.md)
+* [maputils package](maputils/readme.md)
+* [orderedmap package](orderedmap/readme.md)
+* [queue package](queue/readme.md)
+* List
 
 ### Stream operations
 * Concurrent Map

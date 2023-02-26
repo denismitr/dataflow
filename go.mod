@@ -1,4 +1,4 @@
-module github.com/denismitr/gs
+module github.com/denismitr/dataflow
 
 go 1.18
 
