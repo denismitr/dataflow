@@ -73,4 +73,45 @@ func Test_MapReduce(t *testing.T) {
 			t.Fatalf("expected result to be 0, got %d", result)
 		}
 	})
+
+	t.Run("filter", func(t *testing.T) {
+		const n = 10_000
+		in := make([]int, 0, n)
+		for i := 0; i < n; i++ {
+			in = append(in, i)
+		}
+
+		mapper := func(idx int, value int) (int, error) {
+			if idx%2 != 0 {
+				return 0, list.ErrSkip
+			}
+			return value, nil
+		}
+
+		reducer := func(acc []int, idx int, value int) ([]int, error) {
+			return append(acc, value), nil
+		}
+
+		concurrency := list.WithConcurrency[[]int](int(10))
+		init := list.WithInitialValue(make([]int, 0, n/2))
+		result, err := list.MapReduce(context.TODO(), in, mapper, reducer, concurrency, init)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		{
+			want, have := n/2, len(result)
+			if want != have {
+				t.Fatalf("expected resulting slice to have len %d, got %d", want, have)
+			}
+		}
+
+		{
+			for i := range result {
+				if result[i]%2 != 0 {
+					t.Fatalf("did not expect to see an odd number %d", result[i])
+				}
+			}
+		}
+	})
 }
