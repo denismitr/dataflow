@@ -3,18 +3,19 @@ package list
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 )
 
 type (
 	flow[I, O any] struct {
-		inCh        chan listItem[I]
-		outCh       chan listItem[O]
-		errCh       chan error
-		closeCh     chan struct{}
-		mapper      mapper[I, O]
-		concurrency int
-		tasks       sync.WaitGroup
+		inCh    chan listItem[I]
+		outCh   chan listItem[O]
+		errCh   chan error
+		closeCh chan struct{}
+		mapper  mapper[I, O]
+		fc      flowControl
+		tasks   sync.WaitGroup
 	}
 
 	listItem[V any] struct {
@@ -22,30 +23,30 @@ type (
 		value V
 	}
 
-	flowConfig[R any] struct {
-		concurrency         int
-		initialReducerValue R
+	flowControl struct {
+		concurrency    int
+		errorThreshold int
 	}
 
-	reducerOption[R any] func(fc *flowConfig[R])
+	reducerOption func(fc *flowControl)
 
 	mapper[I, O any]  func(int, I) (O, error)
 	reducer[R, O any] func(R, int, O) (R, error)
 )
 
-func newFlow[I, O any](c int, m mapper[I, O]) *flow[I, O] {
+func newFlow[I, O any](fc flowControl, m mapper[I, O]) *flow[I, O] {
 	return &flow[I, O]{
-		inCh:        make(chan listItem[I]),
-		outCh:       make(chan listItem[O]),
-		errCh:       make(chan error, c),
-		closeCh:     make(chan struct{}),
-		mapper:      m,
-		concurrency: c,
+		inCh:    make(chan listItem[I]),
+		outCh:   make(chan listItem[O]),
+		errCh:   make(chan error, fc.concurrency),
+		closeCh: make(chan struct{}),
+		mapper:  m,
+		fc:      fc,
 	}
 }
 
 func (f *flow[I, O]) start(ctx context.Context) {
-	for i := 0; i < f.concurrency; i++ {
+	for i := 0; i < f.fc.concurrency; i++ {
 		f.tasks.Add(1)
 
 		go func() {
@@ -63,9 +64,9 @@ func (f *flow[I, O]) start(ctx context.Context) {
 						}
 
 						f.errCh <- err
-						return
+					} else {
+						f.outCh <- listItem[O]{idx: item.idx, value: result}
 					}
-					f.outCh <- listItem[O]{idx: item.idx, value: result}
 				case <-f.closeCh:
 					return
 				case <-ctx.Done():
@@ -84,11 +85,12 @@ func (f *flow[I, O]) stop() {
 		close(f.closeCh)
 	}
 
-	f.tasks.Wait()
-
-	close(f.inCh)
-	close(f.outCh)
-	close(f.errCh)
+	go func() {
+		f.tasks.Wait()
+		close(f.inCh)
+		close(f.outCh)
+		close(f.errCh)
+	}()
 }
 
 func feed[I, O any](ctx context.Context, in []I, f *flow[I, O]) {
@@ -105,14 +107,16 @@ func feed[I, O any](ctx context.Context, in []I, f *flow[I, O]) {
 	}
 }
 
-func WithInitialValue[R any](r R) reducerOption[R] {
-	return func(fc *flowConfig[R]) {
-		fc.initialReducerValue = r
+func ErrorThreshold(et int) reducerOption {
+	return func(fc *flowControl) {
+		if et > 0 {
+			fc.errorThreshold = et
+		}
 	}
 }
 
-func WithConcurrency[R any](c int) reducerOption[R] {
-	return func(fc *flowConfig[R]) {
+func WithConcurrency(c int) reducerOption {
+	return func(fc *flowControl) {
 		fc.concurrency = c
 	}
 }
@@ -122,21 +126,22 @@ func MapReduce[I, O, R any](
 	in []I,
 	mapper mapper[I, O],
 	reducer reducer[R, O],
-	options ...reducerOption[R],
+	initialReducerValue R,
+	options ...reducerOption,
 ) (R, error) {
-	cfg := flowConfig[R]{concurrency: 1, initialReducerValue: zero[R]()}
+	fc := flowControl{concurrency: 1, errorThreshold: 1}
 	for _, opt := range options {
-		opt(&cfg)
+		opt(&fc)
 	}
 
-	f := newFlow(cfg.concurrency, mapper)
+	f := newFlow(fc, mapper)
 	f.start(ctx)
 
 	go feed(ctx, in, f)
 
-	acc, err := reduce(ctx, f, reducer, cfg.initialReducerValue)
+	acc, err := reduce(ctx, f, reducer, initialReducerValue)
 	if err != nil {
-		return cfg.initialReducerValue, err
+		return acc, err
 	}
 
 	return acc, nil
@@ -149,25 +154,38 @@ func reduce[R, O, I any](
 	initialValue R,
 ) (R, error) {
 	acc := initialValue
+	var mpErr MapReduceError = nil
+
 	for {
 		select {
 		case item, ok := <-f.outCh:
 			if !ok {
-				return acc, nil
+				return acc, multiErrorOrNil(mpErr)
 			}
 			var err error
 			acc, err = r(acc, item.idx, item.value)
 			if err != nil {
-				f.stop()
-				return acc, err
+				f.errCh <- fmt.Errorf("reduce error: %w", err)
 			}
 		case <-ctx.Done():
-			return acc, nil
-		case err := <-f.errCh:
 			f.stop()
-			return acc, err
+			return acc, append(mpErr, ctx.Err())
+		case err := <-f.errCh:
+			mpErr = append(mpErr, err)
+			if len(mpErr) >= f.fc.errorThreshold {
+				f.stop()
+				return acc, mpErr
+			}
 		}
 	}
+}
+
+func multiErrorOrNil(mpErr MapReduceError) error {
+	if len(mpErr) == 0 {
+		return nil
+	}
+
+	return mpErr
 }
 
 func zero[T any]() T {
