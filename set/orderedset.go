@@ -29,6 +29,26 @@ func (s *OrderedSet[T]) Insert(item T) (modified bool) {
 	return modified
 }
 
+func (s *OrderedSet[T]) InsertSet(sourceSet Set[T]) (modified bool) {
+	for _, item := range sourceSet.Items() {
+		if s.Insert(item) {
+			modified = true
+		}
+	}
+
+	return modified
+}
+
+func (s *OrderedSet[T]) InsertSlice(sourceSlice []T) (modified bool) {
+	for _, item := range sourceSlice {
+		if s.Insert(item) {
+			modified = true
+		}
+	}
+
+	return modified
+}
+
 func (s *OrderedSet[T]) Clear() {
 	s.m = nil
 	s.m = make(map[T]*dll.Element[T])
@@ -60,4 +80,8 @@ func (s *OrderedSet[T]) Items() []T {
 func (s *OrderedSet[T]) Has(item T) bool {
 	_, ok := s.m[item]
 	return ok
+}
+
+func (s *OrderedSet[T]) Len() int {
+	return len(s.m)
 }

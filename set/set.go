@@ -7,4 +7,6 @@ type Set[T comparable] interface {
 	Remove(item T) bool
 	Clear()
 	Has(item T) bool
+	Items() []T
+	InsertSet(sourceSet Set[T]) (modified bool)
 }

@@ -1,12 +1,13 @@
 package set
 
+// HashSet - is an unordered set
 type HashSet[T comparable] struct {
 	m map[T]struct{}
 }
 
 var _ Set[int] = (*HashSet[int])(nil)
 
-func New[T comparable]() *HashSet[T] {
+func NewHashSet[T comparable]() *HashSet[T] {
 	return &HashSet[T]{
 		m: make(map[T]struct{}),
 	}
@@ -45,4 +46,28 @@ func (s *HashSet[T]) Remove(item T) bool {
 	}
 
 	return false
+}
+
+func (s *HashSet[T]) InsertSet(sourceSet Set[T]) (modified bool) {
+	for _, item := range sourceSet.Items() {
+		if s.Insert(item) {
+			modified = true
+		}
+	}
+
+	return modified
+}
+
+func (s *HashSet[T]) InsertSlice(sourceSlice []T) (modified bool) {
+	for _, item := range sourceSlice {
+		if s.Insert(item) {
+			modified = true
+		}
+	}
+
+	return modified
+}
+
+func (s *HashSet[T]) Len() int {
+	return len(s.m)
 }
