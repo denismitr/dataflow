@@ -210,12 +210,12 @@ func (om *OrderedMap[K, V]) Clone() *OrderedMap[K, V] {
 // SortBy - sorts the collection and returns the sorted one
 func (om *OrderedMap[K, V]) SortBy(lessFn LessPairFn[K, V]) *OrderedMap[K, V] {
 	clone := om.Clone()
-	clone.list.Sort(dll.CompareFn[utils.Pair[K, V]](lessFn))
+	clone.list.Sort(dll.LessFn[utils.Pair[K, V]](lessFn))
 	return clone
 }
 
 // SortInPlaceBy - sorts the collection in place
 func (om *OrderedMap[K, V]) SortInPlaceBy(lessFn LessPairFn[K, V]) *OrderedMap[K, V] {
-	om.list.Sort(dll.CompareFn[utils.Pair[K, V]](lessFn))
+	om.list.Sort(dll.LessFn[utils.Pair[K, V]](lessFn))
 	return om
 }

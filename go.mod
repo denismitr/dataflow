@@ -3,7 +3,7 @@ module github.com/denismitr/dataflow
 go 1.18
 
 require (
-	github.com/denismitr/dll v0.3.0
+	github.com/denismitr/dll v0.5.1
 	github.com/stretchr/testify v1.8.0
 )
 
