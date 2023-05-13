@@ -7,16 +7,42 @@ import (
 
 type (
 	ValueTransformer[K comparable, V any]      func(K, V) V
+	KeyValueTransformer[K comparable, V any]   func(K, V) (K, V)
 	ValueTransformerAsync[K comparable, V any] func(context.Context, K, V) (V, error)
 )
 
-func TransformValues[K comparable, V any](m map[K]V, vt ValueTransformer[K, V]) map[K]V {
+// Transform transforms a map by applying a value transformer callback to each map key value pair.
+func Transform[K comparable, V any](m map[K]V, vt ValueTransformer[K, V]) map[K]V {
 	result := make(map[K]V, len(m))
 	for k, v := range m {
 		transformed := vt(k, v)
 		result[k] = transformed
 	}
 	return result
+}
+
+func TransformValues[K comparable, V any](m map[K]V, vt ValueTransformer[K, V]) map[K]V {
+	return Transform(m, vt)
+}
+
+// TransformWithKeys transforms a map by applying a key value transformer callback
+// to each map key value pair.
+func TransformWithKeys[K comparable, V any](m map[K]V, kvt KeyValueTransformer[K, V]) map[K]V {
+	result := make(map[K]V, len(m))
+	for k, v := range m {
+		tk, tv := kvt(k, v)
+		result[tk] = tv
+	}
+	return result
+}
+
+func TransformAsync[K comparable, V any](
+	baseCtx context.Context,
+	m map[K]V,
+	vt ValueTransformerAsync[K, V],
+	concurrency uint32,
+) (map[K]V, error) {
+	return TransformValuesAsync(baseCtx, m, vt, concurrency)
 }
 
 func TransformValuesAsync[K comparable, V any](
@@ -48,7 +74,7 @@ func TransformValuesAsync[K comparable, V any](
 					<-sem
 					wg.Done()
 				}()
-				
+
 				transformed, err := vt(ctx, k, v)
 				if err != nil {
 					errCh <- err
